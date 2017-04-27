@@ -7,7 +7,7 @@ DSpace implementation for OpenAIRE Piwik tracking.
 ## Download patch
 
 [Patch v.5] (https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5.diff)
-[Patch v.6 ](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
+[Patch v.6](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
 
 ## Installation
 ```bash
