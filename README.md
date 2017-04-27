@@ -15,7 +15,7 @@ DSpace implementation for OpenAIRE Piwik tracking.
 git apply --check patchfile
 ```
 ```bash
-git apply --whitespace=nowarn --reject patchfile`
+git apply --whitespace=nowarn --reject patchfile
 ```
 Change site ID in oapiwik.cfg
 ```bash
