@@ -6,7 +6,7 @@ DSpace implementation for OpenAIRE Piwik tracking.
     Contact dpierrakos@gmail.com to request OpenAIRE Piwik Site ID
 ## Download patch
 
-[Patch v.5] (https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5.diff)
+[Patch v.5](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5.diff)
 [Patch v.6](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
 
 ## Installation
