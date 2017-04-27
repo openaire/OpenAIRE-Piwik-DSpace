@@ -9,8 +9,16 @@ DSpace implementation for OpenAIRE Piwik tracking.
 [Patch](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
 
 ## Installation
-`git apply --check patchfile`
-`git apply --whitespace=nowarn --reject patchfile`
+```bash
+git apply --check patchfile
+```
+```bash
+git apply --whitespace=nowarn --reject patchfile`
+```
 Change site ID in oapiwik.cfg
-`mvn package`
-`ant update`
+```bash
+mvn package
+```
+```bash
+ant update
+```
