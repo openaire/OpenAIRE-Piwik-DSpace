@@ -1,0 +1,461 @@
+diff --git a/dspace/config/dspace.cfg b/dspace/config/dspace.cfg
+index 86930ecd4..0517c1085 100644
+--- a/dspace/config/dspace.cfg
++++ b/dspace/config/dspace.cfg
+@@ -2022,3 +2022,4 @@ include = ${module_dir}/translator.cfg
+ include = ${module_dir}/usage-statistics.cfg
+ include = ${module_dir}/versioning.cfg
+ include = ${module_dir}/workflow.cfg
++include = ${module_dir}/oapiwik.cfg
+\ No newline at end of file
+diff --git a/dspace/config/modules/oapiwik.cfg b/dspace/config/modules/oapiwik.cfg
+new file mode 100755
+index 000000000..0c4fbe779
+--- /dev/null
++++ b/dspace/config/modules/oapiwik.cfg
+@@ -0,0 +1,7 @@
++
++
++#------------------------#
++# OpenAIRE Piwik Tracker #
++#------------------------#
++oapiwik.piwik.trackerURL = https://analytics.openaire.eu/piwik.php
++oapiwik.piwik.siteID = 1
+diff --git a/dspace/config/spring/jspui/openaire-piwik-xmlui.xml b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
+new file mode 100755
+index 000000000..d2c2e7ee6
+--- /dev/null
++++ b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<beans
++    xmlns="http://www.springframework.org/schema/beans"
++    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++    xmlns:util="http://www.springframework.org/schema/util"
++    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.0.xsd
++                           http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-2.0.xsd">
++
++    <bean id="piwikOpenAire" class="com.openaire.piwik.tracker.OpenAirePiwikTracker" lazy-init="true">
++    </bean>
++
++</beans>
+diff --git a/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
+new file mode 100755
+index 000000000..d2c2e7ee6
+--- /dev/null
++++ b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<beans
++    xmlns="http://www.springframework.org/schema/beans"
++    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++    xmlns:util="http://www.springframework.org/schema/util"
++    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.0.xsd
++                           http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-2.0.xsd">
++
++    <bean id="piwikOpenAire" class="com.openaire.piwik.tracker.OpenAirePiwikTracker" lazy-init="true">
++    </bean>
++
++</beans>
+diff --git a/dspace/modules/jspui/pom.xml b/dspace/modules/jspui/pom.xml
+index 491b4ac0d..fc03dab5b 100644
+--- a/dspace/modules/jspui/pom.xml
++++ b/dspace/modules/jspui/pom.xml
+@@ -103,6 +103,14 @@
+ 
+     <dependencies>
+ 
++       <!-- OpenAire Piwik Tracker  -->
++        <dependency>
++            <groupId>com.openaire</groupId>
++            <artifactId>openaire-piwik-api</artifactId>
++            <version>1.0.0</version>
++            <type>jar</type>
++        </dependency>
++
+         <dependency>
+             <groupId>org.dspace.modules</groupId>
+             <artifactId>additions</artifactId>
+diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
+new file mode 100755
+index 000000000..de6daebc3
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
+@@ -0,0 +1,41 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
++    <modelVersion>4.0.0</modelVersion>
++
++    <parent>
++        <groupId>com.openaire</groupId>
++        <artifactId>openaire-piwik</artifactId>
++        <version>1.0.0</version>
++    </parent>
++
++    <groupId>com.openaire</groupId>
++    <artifactId>openaire-piwik-api</artifactId>
++    <version>1.0.0</version>
++    <packaging>jar</packaging>
++    <name>OpenAIRE Piwik Tracker API</name>
++    <url>openaire.eu</url>
++
++    <dependencies>
++        <dependency>
++            <groupId>org.dspace</groupId>
++            <artifactId>dspace-api</artifactId>
++
++        </dependency>
++
++        <dependency>
++            <groupId>javax.servlet</groupId>
++            <artifactId>servlet-api</artifactId>
++            <version>2.3</version>
++            <scope>provided</scope>
++        </dependency>
++
++		<!-- https://mvnrepository.com/artifact/com.googlecode.json-simple/json-simple -->
++		<dependency>
++		    <groupId>com.googlecode.json-simple</groupId>
++		    <artifactId>json-simple</artifactId>
++		    <version>1.1.1</version>
++		</dependency>
++    </dependencies>
++</project>
+diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
+new file mode 100755
+index 000000000..c6a6db7bb
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
+@@ -0,0 +1,70 @@
++/**
++ * The contents of this file are subject to the license and copyright
++ * detailed in the LICENSE and NOTICE files at the root of the source
++ * tree and available online at
++ *
++ * http://www.dspace.org/license/
++ */
++package com.openaire.piwik.tracker;
++
++import org.dspace.services.EventService;
++import org.dspace.services.model.EventListener;
++import org.springframework.beans.BeansException;
++import org.springframework.beans.factory.config.BeanPostProcessor;
++
++/**
++ * AbstractUsageEventListener is used as the base class for listening events running
++ * in the EventService.
++ *
++ * @author Mark Diggory (mdiggory at atmire.com)
++ * @version $Revision: $
++ */
++public abstract class AbstractUsageEventListener implements EventListener, BeanPostProcessor {
++
++	public AbstractUsageEventListener() {
++		super();
++	}
++
++    @Override
++    public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
++        return bean;
++    }
++
++    @Override
++    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
++        if(beanName.equals("org.dspace.services.EventService"))
++        {
++            setEventService((EventService) bean);
++        }
++        return bean;
++	}
++
++	/**
++	 * Empty String[] flags to have Listener
++	 * consume any event name prefixes.
++	 */
++	public String[] getEventNamePrefixes() {
++		return new String[0];
++	}
++
++	/**
++	 * Currently consumes events generated for
++	 * all resources.
++	 */
++	public String getResourcePrefix() {
++		return null;
++	}
++
++	public void setEventService(EventService service) {
++		if(service != null)
++        {
++            service.registerEventListener(this);
++        }
++		else
++        {
++            throw new IllegalStateException("EventService handed to Listener cannot be null");
++        }
++
++	}
++
++}
+diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
+new file mode 100755
+index 000000000..7589e76a0
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
+@@ -0,0 +1,174 @@
++/*
++ * OpenAirePiwikTracker.java
++ *
++ * Version: 0.1
++ * Date: 2017-04-09 
++ * Initial version @mire.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package com.openaire.piwik.tracker;
++
++import org.apache.commons.lang.StringUtils;
++import org.apache.log4j.Logger;
++import org.dspace.app.util.Util;
++import org.dspace.content.*;
++import org.dspace.content.factory.ContentServiceFactory;
++import org.dspace.content.service.MetadataFieldService;
++import org.dspace.core.ConfigurationManager;
++import org.dspace.core.Context;
++import org.dspace.core.LogManager;
++import org.dspace.core.Constants;
++import org.dspace.services.model.Event;
++import org.dspace.statistics.util.SpiderDetector;
++//import org.dspace.usage.AbstractUsageEventListener;
++import org.dspace.usage.UsageEvent;
++
++import javax.servlet.http.HttpServletRequest;
++import java.io.BufferedReader;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.io.UnsupportedEncodingException;
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.net.URLConnection;
++import java.net.URLEncoder;
++import java.sql.SQLException;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.List;
++import java.util.UUID;
++
++import org.json.simple.JSONObject;
++import org.json.simple.JSONArray;
++import java.io.StringWriter;
++
++
++/**
++ * User: dpie (dpierrakos at gmail.com)
++ * Date: 
++ * Time: 
++ */
++public class OpenAirePiwikTracker extends AbstractUsageEventListener
++{
++    /*  Log4j logger*/
++    private static Logger log = Logger.getLogger(OpenAirePiwikTracker.class);
++
++    private static String piwikbaseUrl;
++    private static String piwikSiteID;
++
++
++    public void init(Context context)
++    {
++        piwikbaseUrl = ConfigurationManager.getProperty("oapiwik", "piwik.trackerURL");
++        piwikSiteID = ConfigurationManager.getProperty("oapiwik", "piwik.siteID");
++
++    }
++
++    public void receiveEvent(Event event)
++    {
++
++        if((event instanceof UsageEvent))
++        {
++
++            Context context = new Context();
++            log.debug("Usage event received " + event.getName());
++
++            try
++            {
++
++                UsageEvent ue = (UsageEvent)event;
++                HttpServletRequest request = ue.getRequest();
++                String agent = request.getHeader("USER-AGENT");
++
++                if (ue.getAction() == UsageEvent.Action.VIEW)
++                {
++
++                    //Item Download Case
++                    if (ue.getObject().getType() == Constants.BITSTREAM)
++                    {
++                        Bitstream bitstream = (Bitstream) ue.getObject();
++                        Bundle bundle = bitstream.getBundles().get(0);
++                        init(context);
++
++                        Item item = bundle.getItems().get(0);
++
++                        StringBuffer sb = new StringBuffer(ConfigurationManager.getProperty("dspace.url"));
++                        sb.append("/bitstream/handle/").append(item.getHandle()).append("/");
++
++                        sb.append(Util.encodeBitstreamName(bitstream.getName(), "UTF-8"));
++
++                        JSONObject oaipmhObj = new JSONObject();
++
++                        JSONArray list = new JSONArray();
++
++                        list.add("oaipmhID");
++                        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
++
++                        oaipmhObj.put("1", list);
++
++                        StringWriter out = new StringWriter();
++                        oaipmhObj.writeJSONString(out);
++
++                        String jsonText = out.toString();
++
++
++                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText + "&ua=" + URLEncoder.encode(agent, "UTF-8");
++                        URL obj = new URL(url);
++                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
++                        int responseCode = con.getResponseCode();
++                    }
++
++                    if (ue.getObject().getType() == Constants.ITEM)
++                    {
++                        Item item = (Item) ue.getObject();
++                        init(context);
++                        JSONObject oaipmhObj = new JSONObject();
++
++                        JSONArray list = new JSONArray();
++
++                        list.add("oaipmhID");
++                        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
++
++                        oaipmhObj.put("1", list);
++
++                        StringWriter out = new StringWriter();
++                        oaipmhObj.writeJSONString(out);
++
++                        String jsonText = out.toString();
++
++                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText;
++                        URL obj = new URL(url);
++                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
++                        int responseCode = con.getResponseCode();
++                    }
++                }
++            }
++            catch(Exception e)
++            {
++                log.error(e.getMessage());
++            }
++        }
++    }
++
++}
+diff --git a/dspace/modules/openaire-piwik/pom.xml b/dspace/modules/openaire-piwik/pom.xml
+new file mode 100755
+index 000000000..5fe5f359e
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/pom.xml
+@@ -0,0 +1,24 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
++    <modelVersion>4.0.0</modelVersion>
++
++    <groupId>com.openaire</groupId>
++    <artifactId>openaire-piwik</artifactId>
++    <packaging>pom</packaging>
++    <url>openaire.eu</url>
++    <name>OpenAIRE Piwik tracker</name>
++    <version>1.0.0</version>
++
++    <parent>
++        <groupId>org.dspace</groupId>
++        <artifactId>modules</artifactId>
++        <version>[6.0,6.10]</version>
++    </parent>
++
++    <modules>
++        <module>openaire-piwik-api</module>
++    </modules>
++
++</project>
+diff --git a/dspace/modules/pom.xml b/dspace/modules/pom.xml
+index 7e1e91f5c..379624492 100644
+--- a/dspace/modules/pom.xml
++++ b/dspace/modules/pom.xml
+@@ -25,6 +25,7 @@
+          as a dependency in most other modules in [src]/dspace/modules -->
+     <modules>
+         <module>additions</module>
++        <module>openaire-piwik</module>        
+     </modules>
+ 
+     <!-- 
+diff --git a/dspace/modules/xmlui/pom.xml b/dspace/modules/xmlui/pom.xml
+index ff0f14dc8..b16e66d13 100644
+--- a/dspace/modules/xmlui/pom.xml
++++ b/dspace/modules/xmlui/pom.xml
+@@ -228,6 +228,14 @@
+             </exclusions>
+         </dependency>
+ 
++       <!-- OpenAire Piwik Tracker  -->
++        <dependency>
++            <groupId>com.openaire</groupId>
++            <artifactId>openaire-piwik-api</artifactId>
++            <version>1.0.0</version>
++            <type>jar</type>
++        </dependency>
++
+         <!-- DSpace XMLUI Languages -->
+         <dependency>
+             <groupId>org.dspace</groupId>
+diff --git a/dspace/pom.xml b/dspace/pom.xml
+index 0543e1b87..f47aee3ab 100644
+--- a/dspace/pom.xml
++++ b/dspace/pom.xml
+@@ -168,7 +168,14 @@
+                 </exclusion>
+             </exclusions>
+     	</dependency>
++    <!-- Piwik OpenAIRE Tracker -->  
+         <dependency>
++            <groupId>com.openaire</groupId>
++            <artifactId>openaire-piwik-api</artifactId>
++            <version>1.0.0</version>
++        </dependency>       
++        <dependency>
++
+             <groupId>com.lyncode</groupId>
+             <artifactId>builder-commons</artifactId>
+             <version>1.0.2</version>
