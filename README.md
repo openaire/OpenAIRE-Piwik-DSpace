@@ -24,6 +24,7 @@ Change site ID in oapiwik.cfg
 mvn package
 ```
 Change to .../dspace/target/dspace-installer
+
 ```bash
 ant update
 ```
