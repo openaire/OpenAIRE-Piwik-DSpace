@@ -3,7 +3,7 @@
 DSpace implementation for OpenAIRE Piwik tracking.
 
     Provide usage data for OpenAIRE usage statistics.
-    Contact dpierrakos@gmail.com to request OpenAIRE Piwik Site ID
+    Contact dpierrakos@gmail.com to request an OpenAIRE Piwik Site ID and an Authentication Token
 ## Download patch
 
 [Patch for DSpace v.4](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace4.diff)
@@ -21,7 +21,7 @@ git apply --check patchfile
 ```bash
 git apply --whitespace=nowarn --reject patchfile
 ```
-Change site ID in oapiwik.cfg
+Change site ID and authentication token in oapiwik.cfg
 ```bash
 mvn package
 ```
