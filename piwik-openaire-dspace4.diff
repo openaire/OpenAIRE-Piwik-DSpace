@@ -1,9 +1,9 @@
 diff --git a/dspace/config/modules/oapiwik.cfg b/dspace/config/modules/oapiwik.cfg
 new file mode 100755
-index 000000000..5480a92f2
+index 000000000..c48c49439
 --- /dev/null
 +++ b/dspace/config/modules/oapiwik.cfg
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,8 @@
 +
 +
 +#------------------------#
@@ -11,6 +11,8 @@ index 000000000..5480a92f2
 +#------------------------#
 +piwik.trackerURL = https://analytics.openaire.eu/piwik.php
 +piwik.siteID = 1
++piwik.tokenAuth=123456
+\ No newline at end of file
 diff --git a/dspace/config/spring/jspui/openaire-piwik-xmlui.xml b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 new file mode 100755
 index 000000000..d2c2e7ee6
@@ -192,10 +194,10 @@ index 000000000..c6a6db7bb
 +}
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
 new file mode 100755
-index 000000000..0366601bf
+index 000000000..b3a404318
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,192 @@
 +/*
 + * OpenAirePiwikTracker.java
 + *
@@ -254,6 +256,7 @@ index 000000000..0366601bf
 +import java.util.Date;
 +import java.util.List;
 +import java.util.UUID;
++import java.util.StringTokenizer;
 +
 +import org.json.simple.JSONObject;
 +import org.json.simple.JSONArray;
@@ -272,12 +275,14 @@ index 000000000..0366601bf
 +
 +    private static String piwikbaseUrl;
 +    private static String piwikSiteID;
++    private static String piwikTokenAuth;
 +
 +
 +    public void init(Context context)
 +    {
 +        piwikbaseUrl = ConfigurationManager.getProperty("oapiwik", "piwik.trackerURL");
 +        piwikSiteID = ConfigurationManager.getProperty("oapiwik", "piwik.siteID");
++        piwikTokenAuth = ConfigurationManager.getProperty("oapiwik","piwik.tokenAuth");
 +
 +    }
 +
@@ -302,6 +307,14 @@ index 000000000..0366601bf
 +                UsageEvent ue = (UsageEvent)event;
 +                HttpServletRequest request = ue.getRequest();
 +                String agent = request.getHeader("USER-AGENT");
++                String cIP="";
++
++                String xForwardedForHeader = request.getHeader("X-Forwarded-For");
++                if (xForwardedForHeader == null) 
++                    cIP = request.getRemoteAddr();
++                 else 
++                    cIP = new StringTokenizer(xForwardedForHeader, ",").nextToken().trim();
++
 +
 +                if (ue.getAction() == UsageEvent.Action.VIEW)
 +                {
@@ -337,7 +350,7 @@ index 000000000..0366601bf
 +                        String jsonText = out.toString();
 +
 +
-+                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText + "&ua=" + URLEncoder.encode(agent, "UTF-8");
++                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&token_auth=" + piwikTokenAuth;
 +                        URL obj = new URL(url);
 +                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
 +                        int responseCode = con.getResponseCode();
@@ -361,7 +374,7 @@ index 000000000..0366601bf
 +
 +                        String jsonText = out.toString();
 +
-+                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText;
++                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText + "&token_auth=" + piwikTokenAuth;
 +                        URL obj = new URL(url);
 +                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
 +                        int responseCode = con.getResponseCode();
