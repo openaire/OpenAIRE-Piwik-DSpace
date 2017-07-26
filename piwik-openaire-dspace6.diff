@@ -10,17 +10,27 @@ index 86930ecd4..0517c1085 100644
 \ No newline at end of file
 diff --git a/dspace/config/modules/oapiwik.cfg b/dspace/config/modules/oapiwik.cfg
 new file mode 100755
-index 000000000..0c4fbe779
+index 000000000..50b7e4870
 --- /dev/null
 +++ b/dspace/config/modules/oapiwik.cfg
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,17 @@
 +
 +
 +#------------------------#
 +# OpenAIRE Piwik Tracker #
 +#------------------------#
++
++#Base Tracker URL
 +oapiwik.piwik.trackerURL = https://analytics.openaire.eu/piwik.php
++
++#Piwik siteID
 +oapiwik.piwik.siteID = 1
++
++#Piwik Authentication Token
++oapiwik.piwik.tokenAuth=32846584f571be9b57488bf4088f30ea
++
++#IP Address Anonymization Bytes. Values in {1,2,3}
++#oapiwik.piwik.ipanonymizationbytes=2
 diff --git a/dspace/config/spring/jspui/openaire-piwik-xmlui.xml b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 new file mode 100755
 index 000000000..d2c2e7ee6
@@ -201,10 +211,10 @@ index 000000000..c6a6db7bb
 +}
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
 new file mode 100755
-index 000000000..7589e76a0
+index 000000000..78f1d2eac
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,328 @@
 +/*
 + * OpenAirePiwikTracker.java
 + *
@@ -248,7 +258,6 @@ index 000000000..7589e76a0
 +import org.dspace.core.Constants;
 +import org.dspace.services.model.Event;
 +import org.dspace.statistics.util.SpiderDetector;
-+//import org.dspace.usage.AbstractUsageEventListener;
 +import org.dspace.usage.UsageEvent;
 +
 +import javax.servlet.http.HttpServletRequest;
@@ -265,11 +274,14 @@ index 000000000..7589e76a0
 +import java.util.Date;
 +import java.util.List;
 +import java.util.UUID;
++import java.util.StringTokenizer;
++import java.util.Locale;
++
 +
 +import org.json.simple.JSONObject;
 +import org.json.simple.JSONArray;
 +import java.io.StringWriter;
-+
++import java.net.*;
 +
 +/**
 + * User: dpie (dpierrakos at gmail.com)
@@ -280,97 +292,69 @@ index 000000000..7589e76a0
 +{
 +    /*  Log4j logger*/
 +    private static Logger log = Logger.getLogger(OpenAirePiwikTracker.class);
-+
++    
++    //Base URl of the Piwik platform
 +    private static String piwikbaseUrl;
++
++    //Piwik Site ID
 +    private static String piwikSiteID;
++
++    //Piwik IP Anonumization Bytes
++    private static String piwikIPAnonymizationBytes;
++
++    //Piwik Site Authentication Token
++    private static String piwikTokenAuth;
++
 +
 +
 +    public void init(Context context)
 +    {
 +        piwikbaseUrl = ConfigurationManager.getProperty("oapiwik", "piwik.trackerURL");
 +        piwikSiteID = ConfigurationManager.getProperty("oapiwik", "piwik.siteID");
++        piwikTokenAuth = ConfigurationManager.getProperty("oapiwik","piwik.tokenAuth");
++
++        piwikIPAnonymizationBytes = ConfigurationManager.getProperty("oapiwik","piwik.ipanonymizationbytes");
++        if(piwikIPAnonymizationBytes==null)
++            piwikIPAnonymizationBytes="0";
 +
 +    }
 +
 +    public void receiveEvent(Event event)
 +    {
 +
-+        if((event instanceof UsageEvent))
-+        {
-+
++        if((event instanceof UsageEvent)){
 +            Context context = new Context();
 +            log.debug("Usage event received " + event.getName());
-+
 +            try
 +            {
-+
 +                UsageEvent ue = (UsageEvent)event;
-+                HttpServletRequest request = ue.getRequest();
-+                String agent = request.getHeader("USER-AGENT");
++                   if (ue.getAction() == UsageEvent.Action.VIEW)
++                        {
++                                //Item Download Case
++                                if (ue.getObject().getType() == Constants.BITSTREAM) {
++                                        Bitstream bitstream = (Bitstream) ue.getObject();
++                                        if(bitstream.getBundles().size()>0) {
++                                                Bundle bundle = bitstream.getBundles().get(0);
++                                                if(bundle.getItems().size()>0) {
++                                                        Item item = bundle.getItems().get(0);
++                                                        if(item.isArchived() && !ContentServiceFactory.getInstance().getItemService().canEdit(context, item)) {
++                                                                init(context);
++                                                                sendBitStreamToPiwik(bitstream,item,ue.getRequest());
++                                                        }
++                                                }
++                                        }
++                                }
++                                //Item View Case
 +
-+                if (ue.getAction() == UsageEvent.Action.VIEW)
-+                {
++                                if (ue.getObject().getType() == Constants.ITEM)
++                                {
++                                        Item item = (Item) ue.getObject();
++                                        init(context);
++                                        sendViewItemToPiwik(item, ue.getRequest());
++                                }
++                        }
 +
-+                    //Item Download Case
-+                    if (ue.getObject().getType() == Constants.BITSTREAM)
-+                    {
-+                        Bitstream bitstream = (Bitstream) ue.getObject();
-+                        Bundle bundle = bitstream.getBundles().get(0);
-+                        init(context);
-+
-+                        Item item = bundle.getItems().get(0);
-+
-+                        StringBuffer sb = new StringBuffer(ConfigurationManager.getProperty("dspace.url"));
-+                        sb.append("/bitstream/handle/").append(item.getHandle()).append("/");
-+
-+                        sb.append(Util.encodeBitstreamName(bitstream.getName(), "UTF-8"));
-+
-+                        JSONObject oaipmhObj = new JSONObject();
-+
-+                        JSONArray list = new JSONArray();
-+
-+                        list.add("oaipmhID");
-+                        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
-+
-+                        oaipmhObj.put("1", list);
-+
-+                        StringWriter out = new StringWriter();
-+                        oaipmhObj.writeJSONString(out);
-+
-+                        String jsonText = out.toString();
-+
-+
-+                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText + "&ua=" + URLEncoder.encode(agent, "UTF-8");
-+                        URL obj = new URL(url);
-+                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
-+                        int responseCode = con.getResponseCode();
-+                    }
-+
-+                    if (ue.getObject().getType() == Constants.ITEM)
-+                    {
-+                        Item item = (Item) ue.getObject();
-+                        init(context);
-+                        JSONObject oaipmhObj = new JSONObject();
-+
-+                        JSONArray list = new JSONArray();
-+
-+                        list.add("oaipmhID");
-+                        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
-+
-+                        oaipmhObj.put("1", list);
-+
-+                        StringWriter out = new StringWriter();
-+                        oaipmhObj.writeJSONString(out);
-+
-+                        String jsonText = out.toString();
-+
-+                        String url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName()) + "&cvar=" + jsonText;
-+                        URL obj = new URL(url);
-+                        HttpURLConnection con = (HttpURLConnection)obj.openConnection();
-+                        int responseCode = con.getResponseCode();
-+                    }
-+                }
-+            }
++         }
 +            catch(Exception e)
 +            {
 +                log.error(e.getMessage());
@@ -378,6 +362,186 @@ index 000000000..7589e76a0
 +        }
 +    }
 +
++private void sendViewItemToPiwik(Item item, HttpServletRequest request) throws IOException {
++
++        //Visitor's IP
++        String cIP="";
++        String xForwardedForHeader = request.getHeader("X-Forwarded-For");
++        if (xForwardedForHeader == null)
++                cIP = request.getRemoteAddr();
++        else
++                cIP = new StringTokenizer(xForwardedForHeader, ",").nextToken().trim();
++
++         //Agent Information
++        String agent = StringUtils.defaultIfBlank(request.getHeader("USER-AGENT"),"");
++
++        //Referer Information
++        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"), "");
++    
++        //Piwik Custom Variable for OAI-PMH ID tracking
++        JSONObject oaipmhObj = new JSONObject();
++        JSONArray list = new JSONArray();
++        list.add("oaipmhID");
++        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
++        oaipmhObj.put("1", list);
++        StringWriter out = new StringWriter();
++        oaipmhObj.writeJSONString(out);
++        String jsonPiwikCustomVars = out.toString();
++
++        //Piwik HTTP request
++
++        String url="";
++
++       //IP Anonuymization case
++
++       if(Integer.parseInt(piwikIPAnonymizationBytes)>0 && Integer.parseInt(piwikIPAnonymizationBytes)<4){
++
++            //Check IPv4 or IPv6
++            InetAddress ipadress=InetAddress.getByName(cIP);
++            if(ipadress instanceof Inet6Address){
++                cIP="0.0.0.0";
++            }
++            else{
++                switch(Integer.parseInt(piwikIPAnonymizationBytes)){
++                    case 1: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",3))+".0";
++                            break;
++                    case 2: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",2))+".0.0";
++                            break;
++                    case 3: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",1))+".0.0.0";
++                            break;
++                    default:   
++                            throw new IllegalArgumentException("Invalid IP bytes: " + Integer.parseInt(piwikIPAnonymizationBytes));       
++                }
++            }
++            //Country information in case of IPAnonymization
++            String country="";
++            try{
++                Locale locale=request.getLocale();
++                country=locale.getCountry();
++            }
++            catch (Exception e){
++                log.error("Cannot get locale", e);
++            }
++            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth + "&country="+URLEncoder.encode(country.toLowerCase(),"UTF-8");
++        }
++        else
++            url=piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth;
++
++        try{
++            URL obj = new URL(url);
++            HttpURLConnection con = (HttpURLConnection)obj.openConnection();
++
++            //Piwik Response
++            BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
++            while (in.readLine() != null);
++            in.close();
++
++            int responseCode = con.getResponseCode();
++            if(responseCode==200)
++                    log.info("Send view item "+ ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle() +" to Piwik " );
++            else    
++                    log.error("Error sending view item to Piwik");
++
++        }
++        catch(Exception e){
++            log.error(e.getMessage(), e);
++        }
++
++}
++private void sendBitStreamToPiwik(Bitstream bitstream, Item item, HttpServletRequest request) throws IOException {
++
++        //Visitor's IP
++        String cIP="";
++        String xForwardedForHeader = request.getHeader("X-Forwarded-For");
++        if (xForwardedForHeader == null)
++                cIP = request.getRemoteAddr();
++        else
++                cIP = new StringTokenizer(xForwardedForHeader, ",").nextToken().trim();
++
++        //Agent Information
++        String agent = StringUtils.defaultIfBlank(request.getHeader("USER-AGENT"),"");
++
++        //Referer Information
++        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"), "");
++
++        //URL of the bitstream
++        StringBuffer sb = new StringBuffer(ConfigurationManager.getProperty("dspace.url"));
++        sb.append("/bitstream/handle/").append(item.getHandle()).append("/");
++        sb.append(Util.encodeBitstreamName(bitstream.getName(), "UTF-8"));
++
++        //Piwik Custom Variable for OAI-PMH ID tracking
++        JSONObject oaipmhObj = new JSONObject();
++        JSONArray list = new JSONArray();
++        list.add("oaipmhID");
++        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
++        oaipmhObj.put("1", list);
++        StringWriter out = new StringWriter();
++        oaipmhObj.writeJSONString(out);
++        String jsonPiwikCustomVars = out.toString();
++
++        //Piwik HTTP request
++        String url="";
++        
++       //IP Anonuymization case 
++       if(Integer.parseInt(piwikIPAnonymizationBytes)>0 && Integer.parseInt(piwikIPAnonymizationBytes)<4){
++
++            //Check IPv4 or IPv6
++            InetAddress ipadress=InetAddress.getByName(cIP);
++            if(ipadress instanceof Inet6Address){
++                cIP="0.0.0.0";
++            }
++            else{
++                switch(Integer.parseInt(piwikIPAnonymizationBytes)){
++                    case 1: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",3))+".0";
++                            break;
++                    case 2: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",2))+".0.0";
++                            break;
++                    case 3: 
++                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",1))+"0.0.0";
++                            break;
++                    default:   
++                            throw new IllegalArgumentException("Invalid IP bytes: " + Integer.parseInt(piwikIPAnonymizationBytes));       
++                }
++            }
++
++            String country="";
++            try{
++                Locale locale=request.getLocale();
++                country=locale.getCountry();
++            }
++            catch (Exception e){
++                log.error("Cannot get locale", e);
++            }
++
++            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth + "&country="+URLEncoder.encode(country.toLowerCase(),"UTF-8"); 
++        }
++        else
++            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth;
++
++        try{
++            URL obj = new URL(url);
++            HttpURLConnection con = (HttpURLConnection)obj.openConnection();
++
++            //Piwik Response
++            BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
++            while (in.readLine() != null);
++            in.close();
++
++            int responseCode = con.getResponseCode();
++            if(responseCode==200)
++                    log.info("Send download bitstream "+ sb.toString()+" to Piwik " );
++            else    
++                    log.error("Error sending download bitstream to Piwik");
++        }
++        catch(Exception e){
++            log.error(e.getMessage(), e);
++        }
++    }
 +}
 diff --git a/dspace/modules/openaire-piwik/pom.xml b/dspace/modules/openaire-piwik/pom.xml
 new file mode 100755
