@@ -22,7 +22,7 @@ DSpace implementation for OpenAIRE Piwik tracking.
 ## Validate and Apply the patch
 
 Follow the steps below:
-- Place and optionally rename, the downloaded <strong>patchfile</strong> in the source folder of Dspace installation, i.e. <strong>[dspace-source]/dspace/<strong>
+- Place and optionally rename, the downloaded <strong>patchfile</strong> in the source folder of Dspace installation, i.e. <strong>[dspace-source]/dspace/</strong>
 - Change the working directory to this folder.
 - Run the following command to validate the <strong>patchfile</strong>.
 
