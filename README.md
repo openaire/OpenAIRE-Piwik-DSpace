@@ -45,7 +45,7 @@ Run the following commands to rebuild and deploy the tracker in DSpace.
 ```bash
 mvn package
 ```
-Change the working directory to <strong>[dspace-source]/dspace/target/dspace-installer</source>
+Change the working directory to <strong>[dspace-source]/dspace/target/dspace-installer</strong>
 
 ```bash
 ant update
