@@ -1,8 +1,8 @@
 diff --git a/dspace/config/dspace.cfg b/dspace/config/dspace.cfg
-index 86930ecd4..0517c1085 100644
+index afdc496..ed907be 100644
 --- a/dspace/config/dspace.cfg
 +++ b/dspace/config/dspace.cfg
-@@ -2022,3 +2022,4 @@ include = ${module_dir}/translator.cfg
+@@ -2029,3 +2029,4 @@ include = ${module_dir}/translator.cfg
  include = ${module_dir}/usage-statistics.cfg
  include = ${module_dir}/versioning.cfg
  include = ${module_dir}/workflow.cfg
@@ -10,10 +10,10 @@ index 86930ecd4..0517c1085 100644
 \ No newline at end of file
 diff --git a/dspace/config/modules/oapiwik.cfg b/dspace/config/modules/oapiwik.cfg
 new file mode 100755
-index 000000000..50b7e4870
+index 0000000..76b49c2
 --- /dev/null
 +++ b/dspace/config/modules/oapiwik.cfg
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,20 @@
 +
 +
 +#------------------------#
@@ -31,9 +31,12 @@ index 000000000..50b7e4870
 +
 +#IP Address Anonymization Bytes. Values in {1,2,3}
 +#oapiwik.piwik.ipanonymizationbytes=2
++
++# Flag to enable/disable tracking. Default is true
++oapiwik.piwik.enabled = true
 diff --git a/dspace/config/spring/jspui/openaire-piwik-xmlui.xml b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 new file mode 100755
-index 000000000..d2c2e7ee6
+index 0000000..d2c2e7e
 --- /dev/null
 +++ b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 @@ -0,0 +1,12 @@
@@ -51,7 +54,7 @@ index 000000000..d2c2e7ee6
 +</beans>
 diff --git a/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
 new file mode 100755
-index 000000000..d2c2e7ee6
+index 0000000..d2c2e7e
 --- /dev/null
 +++ b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
 @@ -0,0 +1,12 @@
@@ -68,7 +71,7 @@ index 000000000..d2c2e7ee6
 +
 +</beans>
 diff --git a/dspace/modules/jspui/pom.xml b/dspace/modules/jspui/pom.xml
-index 491b4ac0d..fc03dab5b 100644
+index aeaebdf..5e52768 100644
 --- a/dspace/modules/jspui/pom.xml
 +++ b/dspace/modules/jspui/pom.xml
 @@ -103,6 +103,14 @@
@@ -88,10 +91,10 @@ index 491b4ac0d..fc03dab5b 100644
              <artifactId>additions</artifactId>
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
 new file mode 100755
-index 000000000..de6daebc3
+index 0000000..70d6c6a
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,40 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<project xmlns="http://maven.apache.org/POM/4.0.0"
 +         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -124,18 +127,17 @@ index 000000000..de6daebc3
 +            <version>2.3</version>
 +            <scope>provided</scope>
 +        </dependency>
-+
-+		<!-- https://mvnrepository.com/artifact/com.googlecode.json-simple/json-simple -->
++        
 +		<dependency>
-+		    <groupId>com.googlecode.json-simple</groupId>
-+		    <artifactId>json-simple</artifactId>
-+		    <version>1.1.1</version>
-+		</dependency>
++		    <groupId>org.apache.httpcomponents</groupId>
++		    <artifactId>httpasyncclient</artifactId>
++		    <version>4.1.3</version>
++		</dependency>		
 +    </dependencies>
 +</project>
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
 new file mode 100755
-index 000000000..c6a6db7bb
+index 0000000..c6a6db7
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
 @@ -0,0 +1,70 @@
@@ -211,10 +213,10 @@ index 000000000..c6a6db7bb
 +}
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
 new file mode 100755
-index 000000000..78f1d2eac
+index 0000000..496e3e9
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,418 @@
 +/*
 + * OpenAirePiwikTracker.java
 + *
@@ -246,306 +248,396 @@ index 000000000..78f1d2eac
 + */
 +package com.openaire.piwik.tracker;
 +
-+import org.apache.commons.lang.StringUtils;
-+import org.apache.log4j.Logger;
-+import org.dspace.app.util.Util;
-+import org.dspace.content.*;
-+import org.dspace.content.factory.ContentServiceFactory;
-+import org.dspace.content.service.MetadataFieldService;
-+import org.dspace.core.ConfigurationManager;
-+import org.dspace.core.Context;
-+import org.dspace.core.LogManager;
-+import org.dspace.core.Constants;
-+import org.dspace.services.model.Event;
-+import org.dspace.statistics.util.SpiderDetector;
-+import org.dspace.usage.UsageEvent;
++import java.io.IOException;
++import java.net.Inet6Address;
++import java.net.InetAddress;
++import java.net.URI;
++import java.net.URISyntaxException;
++import java.net.UnknownHostException;
++import java.util.HashMap;
++import java.util.Locale;
++import java.util.Map;
 +
 +import javax.servlet.http.HttpServletRequest;
-+import java.io.BufferedReader;
-+import java.io.IOException;
-+import java.io.InputStreamReader;
-+import java.io.UnsupportedEncodingException;
-+import java.net.HttpURLConnection;
-+import java.net.URL;
-+import java.net.URLConnection;
-+import java.net.URLEncoder;
-+import java.sql.SQLException;
-+import java.util.ArrayList;
-+import java.util.Date;
-+import java.util.List;
-+import java.util.UUID;
-+import java.util.StringTokenizer;
-+import java.util.Locale;
 +
++import org.apache.commons.lang.StringUtils;
++import org.apache.http.HttpResponse;
++import org.apache.http.HttpStatus;
++import org.apache.http.client.config.RequestConfig;
++import org.apache.http.client.methods.HttpGet;
++import org.apache.http.client.utils.URIBuilder;
++import org.apache.http.concurrent.FutureCallback;
++import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
++import org.apache.http.impl.nio.client.HttpAsyncClients;
++import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
++import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
++import org.apache.log4j.Logger;
++import org.dspace.content.Bitstream;
++import org.dspace.content.Bundle;
++import org.dspace.content.Item;
++import org.dspace.core.Constants;
++import org.dspace.services.factory.DSpaceServicesFactory;
++import org.dspace.services.model.Event;
++import org.dspace.usage.UsageEvent;
 +
-+import org.json.simple.JSONObject;
-+import org.json.simple.JSONArray;
-+import java.io.StringWriter;
-+import java.net.*;
++import com.google.gson.Gson;
 +
 +/**
-+ * User: dpie (dpierrakos at gmail.com)
-+ * Date: 
-+ * Time: 
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
 + */
 +public class OpenAirePiwikTracker extends AbstractUsageEventListener
 +{
-+    /*  Log4j logger*/
++    /* Log4j logger */
 +    private static Logger log = Logger.getLogger(OpenAirePiwikTracker.class);
-+    
-+    //Base URl of the Piwik platform
-+    private static String piwikbaseUrl;
 +
-+    //Piwik Site ID
-+    private static String piwikSiteID;
++    // Base URl of the Piwik platform
++    private String piwikbaseUrl;
 +
-+    //Piwik IP Anonumization Bytes
-+    private static String piwikIPAnonymizationBytes;
++    // Piwik Site ID
++    private String piwikSiteID;
 +
-+    //Piwik Site Authentication Token
-+    private static String piwikTokenAuth;
++    // Piwik IP Anonumization Bytes
++    private int piwikIPAnonymizationBytes;
 +
++    // Piwik Site Authentication Token
++    private String piwikTokenAuth;
 +
++    // Flag if Piwik is enabled for current installation. Might be disabled for
++    // test instances e.g..
++    private boolean piwikEnabled;
 +
-+    public void init(Context context)
++    // Flag if a proxy is in front of the DSpace instance
++    private boolean useProxies;
++
++    // The URL of this DSpace instance
++    private String dspaceURL;
++
++    // The host name of this DSpace instance
++    private String dspaceHostName;
++
++    // Async http client to prevent waiting for piwik server
++    private CloseableHttpAsyncClient httpClient;
++
++    // Pooling connection manager for httpClient
++    private PoolingNHttpClientConnectionManager connectionManager;
++
++    // The time out for a single connection if piwik is slow or unreachable.
++    private static final int CONNECTION_TIMEOUT = 5 * 1000;
++
++    // The number of connections per route
++    private static final int NUMBER_OF_CONNECTIONS_PER_ROUTE = 100;
++
++    // If there are more than MAX_NUMBER_OF_PENDING_CONNECTIONS waiting to be
++    // served events wont be send to Piwik
++    private static final int MAX_NUMBER_OF_PENDING_CONNECTIONS = 10;
++
++    /**
++     * Constructor to initialize the HTTP Client. We only need one per instance
++     * as it is able to handle multiple requests by multiple Threads at once.
++     * 
++     */
++    public OpenAirePiwikTracker()
 +    {
-+        piwikbaseUrl = ConfigurationManager.getProperty("oapiwik", "piwik.trackerURL");
-+        piwikSiteID = ConfigurationManager.getProperty("oapiwik", "piwik.siteID");
-+        piwikTokenAuth = ConfigurationManager.getProperty("oapiwik","piwik.tokenAuth");
 +
-+        piwikIPAnonymizationBytes = ConfigurationManager.getProperty("oapiwik","piwik.ipanonymizationbytes");
-+        if(piwikIPAnonymizationBytes==null)
-+            piwikIPAnonymizationBytes="0";
++        // init the httpClient with custom number of connections and timeout
++        try
++        {
++            RequestConfig requestConfig = RequestConfig.custom()
++                    .setConnectTimeout(CONNECTION_TIMEOUT)
++                    .setSocketTimeout(CONNECTION_TIMEOUT).build();
++            DefaultConnectingIOReactor ioreactor;
++            ioreactor = new DefaultConnectingIOReactor();
++            connectionManager = new PoolingNHttpClientConnectionManager(
++                    ioreactor);
++            connectionManager
++                    .setDefaultMaxPerRoute(NUMBER_OF_CONNECTIONS_PER_ROUTE);
++            httpClient = HttpAsyncClients.custom()
++                    .setDefaultRequestConfig(requestConfig)
++                    .setConnectionManager(connectionManager).build();
++
++            httpClient.start();
++        }
++        catch (Exception e)
++        {
++            log.error(
++                    "Piwik Tracker couldn't be initialized. There will be no tracking until server restart.",
++                    e);
++            httpClient = null;
++        }
++    }
++
++    /**
++     * Read the Piwik configuration options
++     */
++    private void readConfiguration()
++    {
++        // Piwik variables
++        piwikbaseUrl = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("oapiwik.piwik.trackerURL");
++        piwikSiteID = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("oapiwik.piwik.siteID");
++        piwikTokenAuth = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("oapiwik.piwik.tokenAuth");
++        piwikEnabled = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("oapiwik.piwik.enabled", true);
++        piwikIPAnonymizationBytes = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("oapiwik.piwik.ipanonymizationbytes", 0);
++
++        // DSpace variables
++        useProxies = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("useProxies", false);
++        dspaceURL = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.url");
++        dspaceHostName = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.hostname");
 +
 +    }
 +
-+    public void receiveEvent(Event event)
++    @Override
++    public void receiveEvent(final Event event)
 +    {
 +
-+        if((event instanceof UsageEvent)){
-+            Context context = new Context();
++        if (!(event instanceof UsageEvent))
++        {
++            return;
++        }
++
++        try
++        {
++            this.readConfiguration();
++            if (!piwikEnabled || httpClient == null)
++            {
++                return;
++            }
++            if (connectionManager.getTotalStats()
++                    .getPending() >= MAX_NUMBER_OF_PENDING_CONNECTIONS)
++            {
++                log.error(
++                        "Event could not be sent to Piwik server due to insufficient available connections");
++                return;
++            }
++
 +            log.debug("Usage event received " + event.getName());
++
++            UsageEvent ue = (UsageEvent) event;
++            if (ue.getAction() == UsageEvent.Action.VIEW)
++            {
++                // Item Download Case
++                if (ue.getObject().getType() == Constants.BITSTREAM)
++                {
++                    Bitstream bitstream = (Bitstream) ue.getObject();
++                    if (bitstream.getBundles().size() > 0)
++                    {
++                        Bundle bundle = bitstream.getBundles().get(0);
++                        if (bundle.getItems().size() > 0)
++                        {
++                            Item item = bundle.getItems().get(0);
++                            this.logEvent(item, bitstream, ue.getRequest());
++                        }
++                    }
++                }
++                // Item View Case
++                if (ue.getObject().getType() == Constants.ITEM)
++                {
++                    Item item = (Item) ue.getObject();
++                    this.logEvent(item, null, ue.getRequest());
++                }
++            }
++
++        }
++        catch (Exception e)
++        {
++            log.error(e.getMessage());
++        }
++    }
++
++    /**
++     * Builds the URI to send the event to the configured Piwik instance and
++     * sends the request.
++     */
++    private void logEvent(final Item item, final Bitstream bitstream,
++            final HttpServletRequest request)
++            throws IOException, URISyntaxException
++    {
++        URIBuilder builder = new URIBuilder();
++        builder.setPath(piwikbaseUrl);
++        builder.addParameter("idsite", piwikSiteID);
++        builder.addParameter("cip", this.getIPAddress(request));
++        builder.addParameter("rec", "1");
++        builder.addParameter("token_auth", piwikTokenAuth);
++        builder.addParameter("action_name", item.getName());
++
++        // Agent Information
++        String agent = StringUtils
++                .defaultIfBlank(request.getHeader("USER-AGENT"), "");
++        builder.addParameter("ua", agent);
++
++        // Referer Information
++        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"),
++                "");
++        builder.addParameter("urlref", urlref);
++
++        // Country information in case of IPAnonymization
++        if (piwikIPAnonymizationBytes > 0 && piwikIPAnonymizationBytes < 4)
++        {
++            String country = "";
 +            try
 +            {
-+                UsageEvent ue = (UsageEvent)event;
-+                   if (ue.getAction() == UsageEvent.Action.VIEW)
-+                        {
-+                                //Item Download Case
-+                                if (ue.getObject().getType() == Constants.BITSTREAM) {
-+                                        Bitstream bitstream = (Bitstream) ue.getObject();
-+                                        if(bitstream.getBundles().size()>0) {
-+                                                Bundle bundle = bitstream.getBundles().get(0);
-+                                                if(bundle.getItems().size()>0) {
-+                                                        Item item = bundle.getItems().get(0);
-+                                                        if(item.isArchived() && !ContentServiceFactory.getInstance().getItemService().canEdit(context, item)) {
-+                                                                init(context);
-+                                                                sendBitStreamToPiwik(bitstream,item,ue.getRequest());
-+                                                        }
-+                                                }
-+                                        }
-+                                }
-+                                //Item View Case
-+
-+                                if (ue.getObject().getType() == Constants.ITEM)
-+                                {
-+                                        Item item = (Item) ue.getObject();
-+                                        init(context);
-+                                        sendViewItemToPiwik(item, ue.getRequest());
-+                                }
-+                        }
-+
-+         }
-+            catch(Exception e)
-+            {
-+                log.error(e.getMessage());
++                Locale locale = request.getLocale();
++                country = locale.getCountry();
 +            }
++            catch (Exception e)
++            {
++                log.error("Cannot get locale", e);
++            }
++            builder.addParameter("country", country);
 +        }
++
++        if (bitstream != null)
++        {
++            // Bitstream information in case of download event
++            StringBuffer sb = new StringBuffer(dspaceURL);
++            sb.append("/bitstream/handle/").append(item.getHandle())
++                    .append("/");
++            sb.append(bitstream.getName());
++            builder.addParameter("url", sb.toString());
++            builder.addParameter("download", sb.toString());
++
++        }
++        else
++        {
++            // Item information in case of Item view event
++            builder.addParameter("url",
++                    dspaceURL + "/handle/" + item.getHandle());
++        }
++
++        // Piwik Custom Variable for OAI-PMH ID tracking
++        Gson gson = new Gson();
++        Map<String, String[]> jsonPiwikCustomVars = new HashMap<>();
++        String[] oaipmhID = new String[] { "oaipmhID",
++                "oai:" + dspaceHostName + ":" + item.getHandle() };
++        jsonPiwikCustomVars.put("1", oaipmhID);
++        builder.addParameter("cvar", gson.toJson(jsonPiwikCustomVars));
++
++        this.sendRequest(builder.build());
 +    }
 +
-+private void sendViewItemToPiwik(Item item, HttpServletRequest request) throws IOException {
-+
-+        //Visitor's IP
-+        String cIP="";
-+        String xForwardedForHeader = request.getHeader("X-Forwarded-For");
-+        if (xForwardedForHeader == null)
-+                cIP = request.getRemoteAddr();
-+        else
-+                cIP = new StringTokenizer(xForwardedForHeader, ",").nextToken().trim();
-+
-+         //Agent Information
-+        String agent = StringUtils.defaultIfBlank(request.getHeader("USER-AGENT"),"");
-+
-+        //Referer Information
-+        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"), "");
-+    
-+        //Piwik Custom Variable for OAI-PMH ID tracking
-+        JSONObject oaipmhObj = new JSONObject();
-+        JSONArray list = new JSONArray();
-+        list.add("oaipmhID");
-+        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
-+        oaipmhObj.put("1", list);
-+        StringWriter out = new StringWriter();
-+        oaipmhObj.writeJSONString(out);
-+        String jsonPiwikCustomVars = out.toString();
-+
-+        //Piwik HTTP request
-+
-+        String url="";
-+
-+       //IP Anonuymization case
-+
-+       if(Integer.parseInt(piwikIPAnonymizationBytes)>0 && Integer.parseInt(piwikIPAnonymizationBytes)<4){
-+
-+            //Check IPv4 or IPv6
-+            InetAddress ipadress=InetAddress.getByName(cIP);
-+            if(ipadress instanceof Inet6Address){
-+                cIP="0.0.0.0";
-+            }
-+            else{
-+                switch(Integer.parseInt(piwikIPAnonymizationBytes)){
-+                    case 1: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",3))+".0";
-+                            break;
-+                    case 2: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",2))+".0.0";
-+                            break;
-+                    case 3: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",1))+".0.0.0";
-+                            break;
-+                    default:   
-+                            throw new IllegalArgumentException("Invalid IP bytes: " + Integer.parseInt(piwikIPAnonymizationBytes));       
++    /**
++     * Get the IP-Address from the given request. Handles cases where a Proxy is
++     * involved and IP-Address anonymization. Not yet working with IPv6
++     * 
++     * @param request
++     * @return
++     * @throws UnknownHostException
++     */
++    private String getIPAddress(final HttpServletRequest request)
++            throws UnknownHostException
++    {
++        String clientIP = request.getRemoteAddr();
++        if (useProxies && request.getHeader("X-Forwarded-For") != null)
++        {
++            /* This header is a comma delimited list */
++            for (String xfip : request.getHeader("X-Forwarded-For").split(","))
++            {
++                /*
++                 * proxy itself will sometime populate this header with the same
++                 * value in remote address. ordering in spec is vague, we'll
++                 * just take the last not equal to the proxy
++                 */
++                if (!request.getHeader("X-Forwarded-For").contains(clientIP))
++                {
++                    clientIP = xfip.trim();
 +                }
 +            }
-+            //Country information in case of IPAnonymization
-+            String country="";
-+            try{
-+                Locale locale=request.getLocale();
-+                country=locale.getCountry();
-+            }
-+            catch (Exception e){
-+                log.error("Cannot get locale", e);
-+            }
-+            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth + "&country="+URLEncoder.encode(country.toLowerCase(),"UTF-8");
-+        }
-+        else
-+            url=piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle(), "UTF-8") + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth;
-+
-+        try{
-+            URL obj = new URL(url);
-+            HttpURLConnection con = (HttpURLConnection)obj.openConnection();
-+
-+            //Piwik Response
-+            BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
-+            while (in.readLine() != null);
-+            in.close();
-+
-+            int responseCode = con.getResponseCode();
-+            if(responseCode==200)
-+                    log.info("Send view item "+ ConfigurationManager.getProperty("dspace.url") + "/handle/" + item.getHandle() +" to Piwik " );
-+            else    
-+                    log.error("Error sending view item to Piwik");
-+
-+        }
-+        catch(Exception e){
-+            log.error(e.getMessage(), e);
 +        }
 +
-+}
-+private void sendBitStreamToPiwik(Bitstream bitstream, Item item, HttpServletRequest request) throws IOException {
++        // IP anonymization case
 +
-+        //Visitor's IP
-+        String cIP="";
-+        String xForwardedForHeader = request.getHeader("X-Forwarded-For");
-+        if (xForwardedForHeader == null)
-+                cIP = request.getRemoteAddr();
-+        else
-+                cIP = new StringTokenizer(xForwardedForHeader, ",").nextToken().trim();
++        if (piwikIPAnonymizationBytes > 0 && piwikIPAnonymizationBytes < 4)
++        {
 +
-+        //Agent Information
-+        String agent = StringUtils.defaultIfBlank(request.getHeader("USER-AGENT"),"");
-+
-+        //Referer Information
-+        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"), "");
-+
-+        //URL of the bitstream
-+        StringBuffer sb = new StringBuffer(ConfigurationManager.getProperty("dspace.url"));
-+        sb.append("/bitstream/handle/").append(item.getHandle()).append("/");
-+        sb.append(Util.encodeBitstreamName(bitstream.getName(), "UTF-8"));
-+
-+        //Piwik Custom Variable for OAI-PMH ID tracking
-+        JSONObject oaipmhObj = new JSONObject();
-+        JSONArray list = new JSONArray();
-+        list.add("oaipmhID");
-+        list.add("oai:" + ConfigurationManager.getProperty("dspace.hostname") + ":" + item.getHandle());
-+        oaipmhObj.put("1", list);
-+        StringWriter out = new StringWriter();
-+        oaipmhObj.writeJSONString(out);
-+        String jsonPiwikCustomVars = out.toString();
-+
-+        //Piwik HTTP request
-+        String url="";
-+        
-+       //IP Anonuymization case 
-+       if(Integer.parseInt(piwikIPAnonymizationBytes)>0 && Integer.parseInt(piwikIPAnonymizationBytes)<4){
-+
-+            //Check IPv4 or IPv6
-+            InetAddress ipadress=InetAddress.getByName(cIP);
-+            if(ipadress instanceof Inet6Address){
-+                cIP="0.0.0.0";
++            // Check IPv4 or IPv6
++            InetAddress ipadress = InetAddress.getByName(clientIP);
++            if (ipadress instanceof Inet6Address)
++            {
++                clientIP = "0.0.0.0";
 +            }
-+            else{
-+                switch(Integer.parseInt(piwikIPAnonymizationBytes)){
-+                    case 1: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",3))+".0";
-+                            break;
-+                    case 2: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",2))+".0.0";
-+                            break;
-+                    case 3: 
-+                            cIP = cIP.substring(0,StringUtils.ordinalIndexOf(cIP,".",1))+"0.0.0";
-+                            break;
-+                    default:   
-+                            throw new IllegalArgumentException("Invalid IP bytes: " + Integer.parseInt(piwikIPAnonymizationBytes));       
++            else
++            {
++                switch (piwikIPAnonymizationBytes)
++                {
++                case 1:
++                    clientIP = clientIP.substring(0,
++                            StringUtils.ordinalIndexOf(clientIP, ".", 3))
++                            + ".0";
++                    break;
++                case 2:
++                    clientIP = clientIP.substring(0,
++                            StringUtils.ordinalIndexOf(clientIP, ".", 2))
++                            + ".0.0";
++                    break;
++                case 3:
++                    clientIP = clientIP.substring(0,
++                            StringUtils.ordinalIndexOf(clientIP, ".", 1))
++                            + ".0.0.0";
++                    break;
++                default:
++                    throw new IllegalArgumentException(
++                            "Invalid IP bytes: " + piwikIPAnonymizationBytes);
++                }
++            }
++        }
++
++        return clientIP;
++    }
++
++    /**
++     * Send the request to the given URI asynchronous. Ignores the result except
++     * for a status code check.
++     */
++    private void sendRequest(final URI uri)
++    {
++        final HttpGet request = new HttpGet(uri);
++        httpClient.execute(request, new FutureCallback<HttpResponse>()
++        {
++            @Override
++            public void completed(final HttpResponse response)
++            {
++                if (response.getStatusLine()
++                        .getStatusCode() == HttpStatus.SC_OK)
++                {
++                    log.info("Sent usage event to piwik");
++                }
++                else
++                {
++                    log.error("Error sending reqeust to Piwik." + " -> "
++                            + response.getStatusLine());
 +                }
 +            }
 +
-+            String country="";
-+            try{
-+                Locale locale=request.getLocale();
-+                country=locale.getCountry();
-+            }
-+            catch (Exception e){
-+                log.error("Cannot get locale", e);
++            @Override
++            public void failed(final Exception ex)
++            {
++                log.error("Error sending usage event to Piwik", ex);
 +            }
 +
-+            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth + "&country="+URLEncoder.encode(country.toLowerCase(),"UTF-8"); 
-+        }
-+        else
-+            url = piwikbaseUrl + "?idsite=" + piwikSiteID + "&cip=" +URLEncoder.encode(cIP, "UTF-8") + "&rec=1&url=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&download=" + URLEncoder.encode(sb.toString(), "UTF-8") + "&action_name=" + URLEncoder.encode(item.getName(),"UTF-8") + "&cvar=" + jsonPiwikCustomVars + "&ua=" + URLEncoder.encode(agent, "UTF-8") + "&urlref=" + URLEncoder.encode(urlref, "UTF-8") + "&token_auth=" + piwikTokenAuth;
++            @Override
++            public void cancelled()
++            {
++                log.info("Request cancelled");
++            }
 +
-+        try{
-+            URL obj = new URL(url);
-+            HttpURLConnection con = (HttpURLConnection)obj.openConnection();
-+
-+            //Piwik Response
-+            BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
-+            while (in.readLine() != null);
-+            in.close();
-+
-+            int responseCode = con.getResponseCode();
-+            if(responseCode==200)
-+                    log.info("Send download bitstream "+ sb.toString()+" to Piwik " );
-+            else    
-+                    log.error("Error sending download bitstream to Piwik");
-+        }
-+        catch(Exception e){
-+            log.error(e.getMessage(), e);
-+        }
++        });
 +    }
 +}
 diff --git a/dspace/modules/openaire-piwik/pom.xml b/dspace/modules/openaire-piwik/pom.xml
 new file mode 100755
-index 000000000..5fe5f359e
+index 0000000..5fe5f35
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/pom.xml
 @@ -0,0 +1,24 @@
@@ -574,7 +666,7 @@ index 000000000..5fe5f359e
 +
 +</project>
 diff --git a/dspace/modules/pom.xml b/dspace/modules/pom.xml
-index 7e1e91f5c..379624492 100644
+index 011b88d..d9dfbe6 100644
 --- a/dspace/modules/pom.xml
 +++ b/dspace/modules/pom.xml
 @@ -25,6 +25,7 @@
@@ -586,7 +678,7 @@ index 7e1e91f5c..379624492 100644
  
      <!-- 
 diff --git a/dspace/modules/xmlui/pom.xml b/dspace/modules/xmlui/pom.xml
-index ff0f14dc8..b16e66d13 100644
+index b30b5d3..b199ffa 100644
 --- a/dspace/modules/xmlui/pom.xml
 +++ b/dspace/modules/xmlui/pom.xml
 @@ -228,6 +228,14 @@
@@ -605,7 +697,7 @@ index ff0f14dc8..b16e66d13 100644
          <dependency>
              <groupId>org.dspace</groupId>
 diff --git a/dspace/pom.xml b/dspace/pom.xml
-index 0543e1b87..f47aee3ab 100644
+index b7d02ae..781f4e7 100644
 --- a/dspace/pom.xml
 +++ b/dspace/pom.xml
 @@ -168,7 +168,14 @@

@@ -38,12 +38,13 @@ git apply --whitespace=nowarn --reject patchfile
 ## Configure tracker parameters
 - Change Piwik site ID and Piwik Authentication Token in <strong>oapiwik.cfg</strong>, located in <strong>[dspace-source]/dspace/config/modules</strong>
 - Optionally specify the number of bytes in IP Address for IP Anonymization (for supported versions only).
+- Enable (<strong>true</strong>) or disable (<strong>false</strong>) the tracker. Default value is <strong>true</strong>.
 
 ## Build and Deploy the patch
 Run the following commands to rebuild and deploy the tracker in DSpace.
 
 ```bash
-mvn package
+mvn clean package
 ```
 Change the working directory to <strong>[dspace-source]/dspace/target/dspace-installer</strong>
 
