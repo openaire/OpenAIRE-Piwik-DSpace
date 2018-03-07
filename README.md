@@ -11,10 +11,6 @@ DSpace implementation for OpenAIRE Piwik tracking.
 
 [Patch for DSpace v.4](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace4.diff)
 
-## Download patch with optional IP Anonymization
-
-[Patch for DSpace-CRIS v.4](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace4-cris.diff)
-
 [Patch for DSpace v.5](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5.diff)
 
 [Patch for DSpace v.6](https://raw.githubusercontent.com/dimitrispie/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
