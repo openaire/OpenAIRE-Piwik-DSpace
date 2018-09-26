@@ -10,7 +10,7 @@ DSpace implementation for OpenAIRE Piwik tracking.
 ## Download patch
 
 [Patch for DSpace v.4](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace4.diff)
-
+					   
 [Patch for DSpace v.5](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5.diff)
 
 [Patch for DSpace v.6](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
@@ -47,5 +47,25 @@ Change the working directory to <strong>[dspace-source]/dspace/target/dspace-ins
 ```bash
 ant update
 ```
+
+## Configure SQLite DB for missing requests
+In case of Matomo connectivity issues an SQLite Database is used to store missing requests. 
+- To create the DB:
+	
+```bash
+[dspace.dir]/bin/dspace resend-to-matomo -create
+```
+- Any time during the day, or once a week, execute the following command to submit the missing requests to Matomo
+
+```bash
+[dspace.dir]/bin/dspace resend-to-matomo -retry
+```
+ 
+ -  After sending the missing requests, execute the following command to delete submitted requests from the DB
+
+ ```bash
+ [dspace.dir]/bin/dspace resend-to-matomo -delete
+```
+
 ## Restart Tomcat server
 Tomcat server restart is required to apply the changes.

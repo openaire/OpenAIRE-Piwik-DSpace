@@ -1,19 +1,52 @@
 diff --git a/dspace/config/dspace.cfg b/dspace/config/dspace.cfg
-index afdc496..ed907be 100644
+index d17993d4d..6f548a6d0 100644
 --- a/dspace/config/dspace.cfg
 +++ b/dspace/config/dspace.cfg
-@@ -2029,3 +2029,4 @@ include = ${module_dir}/translator.cfg
+@@ -2025,3 +2025,4 @@ include = ${module_dir}/translator.cfg
  include = ${module_dir}/usage-statistics.cfg
  include = ${module_dir}/versioning.cfg
  include = ${module_dir}/workflow.cfg
 +include = ${module_dir}/oapiwik.cfg
 \ No newline at end of file
+diff --git a/dspace/config/launcher.xml b/dspace/config/launcher.xml
+index bf2c22618..c218eb142 100644
+--- a/dspace/config/launcher.xml
++++ b/dspace/config/launcher.xml
+@@ -373,4 +373,28 @@
+             <class>org.dspace.app.util.Version</class>
+         </step>
+     </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Create Matomo DB for Missing Usage Events</description>
++        <arguments>-create</arguments>
++        <step>
++            <class>com.openaire.piwik.tracker.OpenAirePiwikTrackerUnreportedDB</class>
++        </step>
++    </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Retry sending all Missing Usage Events to Matomo</description>
++        <arguments>-retry</arguments>
++        <step>
++            <class>com.openaire.piwik.tracker.OpenAirePiwikTrackerUnreportedDB</class>
++        </step>
++    </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Delete Usage Events Sent to Matomo</description>
++        <arguments>-delete</arguments>
++        <step>
++            <class>com.openaire.piwik.tracker.OpenAirePiwikTrackerUnreportedDB</class>
++        </step>
++    </command>
+ </commands>
 diff --git a/dspace/config/modules/oapiwik.cfg b/dspace/config/modules/oapiwik.cfg
 new file mode 100755
-index 0000000..76b49c2
+index 000000000..db5866182
 --- /dev/null
 +++ b/dspace/config/modules/oapiwik.cfg
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,26 @@
 +
 +
 +#------------------------#
@@ -34,9 +67,16 @@ index 0000000..76b49c2
 +
 +# Flag to enable/disable tracking. Default is true
 +oapiwik.piwik.enabled = true
++
++# Flag whether failed reports of views should be stored in a database to resend them later
++oapiwik.piwik.retry = true
++
++# Location of the SQLite DB on the file system is [dspace]/oapiwik.piwik.matomoDbLocation
++oapiwik.piwik.matomoDbLocation = var/Matomo.db
+\ No newline at end of file
 diff --git a/dspace/config/spring/jspui/openaire-piwik-xmlui.xml b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 new file mode 100755
-index 0000000..d2c2e7e
+index 000000000..d2c2e7ee6
 --- /dev/null
 +++ b/dspace/config/spring/jspui/openaire-piwik-xmlui.xml
 @@ -0,0 +1,12 @@
@@ -54,7 +94,7 @@ index 0000000..d2c2e7e
 +</beans>
 diff --git a/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
 new file mode 100755
-index 0000000..d2c2e7e
+index 000000000..d2c2e7ee6
 --- /dev/null
 +++ b/dspace/config/spring/xmlui/openaire-piwik-xmlui.xml
 @@ -0,0 +1,12 @@
@@ -71,7 +111,7 @@ index 0000000..d2c2e7e
 +
 +</beans>
 diff --git a/dspace/modules/jspui/pom.xml b/dspace/modules/jspui/pom.xml
-index aeaebdf..5e52768 100644
+index d736fee78..3cdc9ba52 100644
 --- a/dspace/modules/jspui/pom.xml
 +++ b/dspace/modules/jspui/pom.xml
 @@ -103,6 +103,14 @@
@@ -91,10 +131,10 @@ index aeaebdf..5e52768 100644
              <artifactId>additions</artifactId>
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
 new file mode 100755
-index 0000000..70d6c6a
+index 000000000..b17ab592c
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/pom.xml
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,46 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<project xmlns="http://maven.apache.org/POM/4.0.0"
 +         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -132,12 +172,18 @@ index 0000000..70d6c6a
 +		    <groupId>org.apache.httpcomponents</groupId>
 +		    <artifactId>httpasyncclient</artifactId>
 +		    <version>4.1.3</version>
-+		</dependency>		
++		</dependency>
++        <!-- https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc -->
++        <dependency>
++            <groupId>org.xerial</groupId>
++            <artifactId>sqlite-jdbc</artifactId>
++            <version>3.21.0.1</version>
++        </dependency>
 +    </dependencies>
 +</project>
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
 new file mode 100755
-index 0000000..c6a6db7
+index 000000000..c6a6db7bb
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/AbstractUsageEventListener.java
 @@ -0,0 +1,70 @@
@@ -213,15 +259,15 @@ index 0000000..c6a6db7
 +}
 diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
 new file mode 100755
-index 0000000..496e3e9
+index 000000000..ae47e448b
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTracker.java
-@@ -0,0 +1,418 @@
+@@ -0,0 +1,438 @@
 +/*
 + * OpenAirePiwikTracker.java
 + *
-+ * Version: 0.1
-+ * Date: 2017-04-09 
++ * Version: 0.2
++ * Date: 2018-05-20
 + * Initial version @mire.  All rights reserved.
 + *
 + * Redistribution and use in source and binary forms, with or without
@@ -306,6 +352,9 @@ index 0000000..496e3e9
 +    // test instances e.g..
 +    private boolean piwikEnabled;
 +
++    // Flag if mising requests are stored in local DB for retry
++    private boolean piwikRetry;
++
 +    // Flag if a proxy is in front of the DSpace instance
 +    private boolean useProxies;
 +
@@ -386,6 +435,9 @@ index 0000000..496e3e9
 +        piwikIPAnonymizationBytes = DSpaceServicesFactory.getInstance()
 +                .getConfigurationService()
 +                .getPropertyAsType("oapiwik.piwik.ipanonymizationbytes", 0);
++        piwikRetry = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("oapiwik.piwik.retry", true);
 +
 +        // DSpace variables
 +        useProxies = DSpaceServicesFactory.getInstance()
@@ -624,6 +676,20 @@ index 0000000..496e3e9
 +            public void failed(final Exception ex)
 +            {
 +                log.error("Error sending usage event to Piwik", ex);
++                try
++                {
++                    if (piwikRetry)
++                    {
++                        OpenAirePiwikTrackerUnreported unreportedReq = new OpenAirePiwikTrackerUnreported();
++                        unreportedReq.storeRequest(uri.toString());
++                        log.info("Missing request stored to local DB");
++                    }
++                }
++                catch (Exception e)
++                {
++                    log.error("Error storing unreported request");
++                }
++
 +            }
 +
 +            @Override
@@ -635,9 +701,264 @@ index 0000000..496e3e9
 +        });
 +    }
 +}
+diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreported.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreported.java
+new file mode 100755
+index 000000000..69ce2cba3
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreported.java
+@@ -0,0 +1,86 @@
++/*
++ * OpenAirePiwikTrackerUnreported.java
++ *
++ * Version: 0.1
++ * Date: 2018-05-20
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package com.openaire.piwik.tracker;
++
++import java.sql.Connection;
++import java.sql.DriverManager;
++import java.sql.SQLException;
++import java.sql.Statement;
++import java.sql.Timestamp;
++import java.util.Calendar;
++
++import org.apache.log4j.Logger;
++
++/**
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
++ */
++public class OpenAirePiwikTrackerUnreported
++{
++
++    private static Logger log = Logger
++            .getLogger(OpenAirePiwikTrackerUnreported.class);
++
++    public OpenAirePiwikTrackerUnreported()
++    {
++        try
++        {
++            // The JDBC driver loading doesn't work for webapps without this.
++            // http://tomcat.apache.org/tomcat-8.0-doc/jndi-datasource-examples-howto.html#DriverManager,_the_service_provider_mechanism_and_memory_leaks
++            Class.forName("org.sqlite.JDBC");
++        }
++        catch (ClassNotFoundException e)
++        {
++            log.error("Could not load sqlite JDBC driver");
++        }
++    }
++
++    public void storeRequest(String requestLost) throws Exception
++    {
++
++        try (Connection conn = DriverManager.getConnection(
++                OpenAirePiwikTrackerUnreportedDB.getMatomoDatabaseUrl());
++                Statement stmt = conn.createStatement();)
++        {
++
++            log.info("Connected to Matomo DB...");
++
++            Timestamp currentTimestamp = new java.sql.Timestamp(
++                    Calendar.getInstance().getTime().getTime());
++            String sqlInsertMissingRequestsToDB = "INSERT INTO MissingInformation (time_req,url,isSend) "
++                    + "VALUES ('" + currentTimestamp + "','" + requestLost
++                    + "',0);";
++
++            stmt.execute(sqlInsertMissingRequestsToDB);
++        }
++        catch (SQLException e)
++        {
++            log.error(e.getMessage());
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreportedDB.java b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreportedDB.java
+new file mode 100755
+index 000000000..e4cdb7db0
+--- /dev/null
++++ b/dspace/modules/openaire-piwik/openaire-piwik-api/src/main/java/com/openaire/piwik/tracker/OpenAirePiwikTrackerUnreportedDB.java
+@@ -0,0 +1,155 @@
++/*
++ * OpenAirePiwikTrackerUnreportedDB.java
++ *
++ * Version: 0.1
++ * Date: 2018-05-20
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package com.openaire.piwik.tracker;
++
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.net.URLEncoder;
++import java.nio.charset.StandardCharsets;
++import java.sql.Connection;
++import java.sql.DriverManager;
++import java.sql.ResultSet;
++import java.sql.Statement;
++import java.util.HashMap;
++import java.util.Map;
++
++import org.dspace.services.factory.DSpaceServicesFactory;
++
++/**
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
++**/
++public class OpenAirePiwikTrackerUnreportedDB
++{
++
++    public static String getMatomoDatabaseUrl()
++    {
++        String dspaceDir = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.dir");
++
++        String matomoDbLocation = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("oapiwik.piwik.matomoDbLocation");
++
++        String connectionStringMatomoDB = "jdbc:sqlite:" + dspaceDir + "/"
++                + matomoDbLocation;
++
++        return connectionStringMatomoDB;
++    }
++
++    public static void main(String[] args) throws Exception
++    {
++
++        String argument = args[0];
++        if (!("-create".equals(argument)) && !("-retry".equals(argument))
++                && !("-delete".equals(argument)))
++        {
++            System.out.println("Usage: dspace.dir/bin/dspace -create or -retry or -delete");
++            return;
++        }
++
++        try (Connection conn = DriverManager
++                .getConnection(getMatomoDatabaseUrl());
++                Statement stmt = conn.createStatement();)
++        {
++
++            System.out.println("Connected to Matomo DB...");
++            if (argument.equals("-create"))
++            {
++
++                String sqlCreate = "CREATE TABLE IF NOT EXISTS MissingInformation (time_req TEXT PRIMARY KEY, url TEXT NOT NULL, isSend INTEGER NOT NULL);";
++                stmt.executeUpdate(sqlCreate);
++            }
++            else if (argument.equals("-retry"))
++            {
++
++                try (ResultSet rs = stmt.executeQuery(
++                        "SELECT time_req, url FROM MissingInformation where isSend=0;");)
++                {
++                    String urlUnreported = "";
++                    String time_req = "";
++
++                    HashMap<String, String> timestampURLMap = new HashMap<String, String>();
++
++                    if (!rs.isBeforeFirst())
++                        System.out.println("No pending missing requests");
++
++                    else
++                    {
++                        while (rs.next())
++                        {
++                            time_req = rs.getString("time_req");
++                            urlUnreported = rs.getString("url");
++                            timestampURLMap.put(time_req, urlUnreported);
++                        }
++                    }
++
++                    for (Map.Entry<String, String> entry : timestampURLMap
++                            .entrySet())
++                    {
++                        String timeStamp = entry.getKey();
++                        String urlForReport = entry.getValue();
++
++                        URL obj = new URL(urlForReport + "&cdt="
++                                + URLEncoder.encode(timeStamp,
++                                        StandardCharsets.UTF_8.name()));
++                        HttpURLConnection con = (HttpURLConnection) obj
++                                .openConnection();
++                        int responseCode = con.getResponseCode();
++                        if (responseCode == 200)
++                        {
++                            String sqlUpdate = "";
++
++                            sqlUpdate = "UPDATE MissingInformation set isSend=1 where time_req='"
++                                    + timeStamp + "';";
++                            stmt.executeUpdate(sqlUpdate);
++                            System.out.println("Unreported Event sent");
++                        }
++                    }
++                }
++                catch (Exception e)
++                {
++                    System.out.println(e);
++                }
++            }
++            else if (argument.equals("-delete"))
++            {
++
++                String sqlPurge = "DELETE FROM MissingInformation where isSend=1;";
++                int deletedRowCount = stmt.executeUpdate(sqlPurge);
++                System.out.println(deletedRowCount
++                       +  " missing requests have already been sent to Matomo and deleted from local DB");
++
++            }
++        }
++        catch (Exception e)
++        {
++            System.out.println("Error in creating table " + e.getMessage());
++        }
++    }
++}
+\ No newline at end of file
 diff --git a/dspace/modules/openaire-piwik/pom.xml b/dspace/modules/openaire-piwik/pom.xml
 new file mode 100755
-index 0000000..5fe5f35
+index 000000000..5fe5f359e
 --- /dev/null
 +++ b/dspace/modules/openaire-piwik/pom.xml
 @@ -0,0 +1,24 @@
@@ -666,7 +987,7 @@ index 0000000..5fe5f35
 +
 +</project>
 diff --git a/dspace/modules/pom.xml b/dspace/modules/pom.xml
-index 011b88d..d9dfbe6 100644
+index d4d329d7a..d5ea27e15 100644
 --- a/dspace/modules/pom.xml
 +++ b/dspace/modules/pom.xml
 @@ -25,6 +25,7 @@
@@ -678,7 +999,7 @@ index 011b88d..d9dfbe6 100644
  
      <!-- 
 diff --git a/dspace/modules/xmlui/pom.xml b/dspace/modules/xmlui/pom.xml
-index b30b5d3..b199ffa 100644
+index f8ad3532d..75fdebf33 100644
 --- a/dspace/modules/xmlui/pom.xml
 +++ b/dspace/modules/xmlui/pom.xml
 @@ -228,6 +228,14 @@
@@ -697,7 +1018,7 @@ index b30b5d3..b199ffa 100644
          <dependency>
              <groupId>org.dspace</groupId>
 diff --git a/dspace/pom.xml b/dspace/pom.xml
-index b7d02ae..781f4e7 100644
+index 70c9f3348..67c49ee7e 100644
 --- a/dspace/pom.xml
 +++ b/dspace/pom.xml
 @@ -168,7 +168,14 @@
