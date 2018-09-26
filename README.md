@@ -66,6 +66,13 @@ In case of Matomo connectivity issues an SQLite Database is used to store missin
  ```bash
  [dspace.dir]/bin/dspace resend-to-matomo -delete
 ```
+## If Matomo patches are already installed, please download the following patches with the SQLite functionality
+
+[Updated Patch with SQLite for DSpace v.4](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace4-sqlite-update.diff)
+
+[Updated Patch with SQLite for DSpace v.5](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace5-sqlite-update.diff)
+
+[Updated Patch with SQLite for DSpace v.6](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6-sqlite-update.diff)
 
 ## Restart Tomcat server
 Tomcat server restart is required to apply the changes.
