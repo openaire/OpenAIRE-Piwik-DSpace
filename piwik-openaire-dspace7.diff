@@ -1,0 +1,813 @@
+diff --git a/dspace-api/pom.xml b/dspace-api/pom.xml
+index f83d4ad98..4fbe106a1 100644
+--- a/dspace-api/pom.xml
++++ b/dspace-api/pom.xml
+@@ -793,7 +793,24 @@
+             <version>1.19.0</version>
+             <scope>test</scope>
+         </dependency>
+-
++        <!-- https://mvnrepository.com/artifact/org.apache.httpcomponents/httpasyncclient -->
++        <dependency>
++            <groupId>org.apache.httpcomponents</groupId>
++            <artifactId>httpasyncclient</artifactId>
++            <version>4.1.5</version>
++        </dependency>
++        <dependency>
++            <groupId>javax.servlet</groupId>
++            <artifactId>servlet-api</artifactId>
++            <version>2.5</version>
++            <scope>provided</scope>
++      </dependency>
++      <!-- https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc -->
++      <dependency>
++            <groupId>org.xerial</groupId>
++            <artifactId>sqlite-jdbc</artifactId>
++            <version>3.21.0.1</version>
++        </dependency>
+         <!-- Used for Solr core export/import -->
+         <dependency>
+             <groupId>com.opencsv</groupId>
+diff --git a/dspace-api/src/main/java/org/dspace/statistics/export/OpenAIREUsageTracker.java b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAIREUsageTracker.java
+new file mode 100644
+index 000000000..dafdf675d
+--- /dev/null
++++ b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAIREUsageTracker.java
+@@ -0,0 +1,405 @@
++/*
++ * OpenAIREUsageTracker.java
++ *
++ * Version: 0.2
++ * Date: 2021-11-20
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package org.dspace.statistics.export;
++
++import java.io.IOException;
++import java.net.Inet6Address;
++import java.net.InetAddress;
++import java.net.URI;
++import java.net.URISyntaxException;
++import java.net.UnknownHostException;
++import java.util.HashMap;
++import java.util.Locale;
++import java.util.Map;
++
++import javax.servlet.http.HttpServletRequest;
++
++import org.apache.logging.log4j.LogManager;
++import org.dspace.content.Bitstream;
++import org.dspace.content.Bundle;
++import org.dspace.content.Item;
++import org.dspace.core.Constants;
++import org.dspace.services.model.Event;
++import org.dspace.usage.UsageEvent;
++import org.dspace.usage.AbstractUsageEventListener;
++import org.dspace.services.factory.DSpaceServicesFactory;
++import org.apache.commons.lang.StringUtils;
++import org.apache.http.HttpResponse;
++import org.apache.http.HttpStatus;
++import org.apache.http.client.methods.HttpGet;
++import org.apache.http.concurrent.FutureCallback;
++import org.apache.logging.log4j.Logger;
++import org.apache.http.client.config.RequestConfig;
++import org.apache.http.client.utils.URIBuilder;
++import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
++import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
++import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
++import org.apache.http.impl.nio.client.HttpAsyncClients;
++import com.google.gson.Gson;
++
++/**
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
++ */
++public class OpenAIREUsageTracker extends AbstractUsageEventListener {
++
++    /* Log4j logger */
++    private static Logger log = LogManager.getLogger(OpenAIREUsageTracker.class);
++
++    // Base URl of the OpenAIRE platform
++    private String matomobaseUrl;
++
++    // Matomo Site ID
++    private String matomoSiteID;
++
++    // Matomo IP Anonumization Bytes
++    private int matomoIPAnonymizationBytes;
++
++    // Matomo Site Authentication Token
++    private String matomoTokenAuth;
++
++    // Flag if Matomo is enabled for current installation. Might be disabled for
++    // test instances e.g..
++    private boolean matomoEnabled;
++
++    // Flag if mising requests are stored in local DB for retry
++    private boolean matomoRetry;
++
++    // Flag if a proxy is in front of the DSpace instance
++    private boolean useProxies;
++
++    // The URL of this DSpace instance
++    private String dspaceURL;
++
++    // The host name of this DSpace instance
++    private String dspaceHostName;
++
++    // Async http client to prevent waiting for Matomo server
++    private CloseableHttpAsyncClient httpClient;
++
++    // Pooling connection manager for httpClient
++    private PoolingNHttpClientConnectionManager connectionManager;
++
++    // The time out for a single connection if Matomo is slow or unreachable.
++    private static final int CONNECTION_TIMEOUT = 5 * 1000;
++
++    // The number of connections per route
++    private static final int NUMBER_OF_CONNECTIONS_PER_ROUTE = 100;
++
++    // If there are more than MAX_NUMBER_OF_PENDING_CONNECTIONS waiting to be
++    // served events wont be send to Matomo
++    private static final int MAX_NUMBER_OF_PENDING_CONNECTIONS = 10;
++
++    /**
++     * Constructor to initialize the HTTP Client. We only need one per instance
++     * as it is able to handle multiple requests by multiple Threads at once.
++     */
++    public OpenAIREUsageTracker() {
++
++        // init the httpClient with custom number of connections and timeout
++        try {
++            RequestConfig requestConfig = RequestConfig.custom()
++                    .setConnectTimeout(CONNECTION_TIMEOUT)
++                    .setSocketTimeout(CONNECTION_TIMEOUT).build();
++            DefaultConnectingIOReactor ioreactor;
++            ioreactor = new DefaultConnectingIOReactor();
++            connectionManager = new PoolingNHttpClientConnectionManager(
++                    ioreactor);
++            connectionManager
++                    .setDefaultMaxPerRoute(NUMBER_OF_CONNECTIONS_PER_ROUTE);
++            httpClient = HttpAsyncClients.custom()
++                    .setDefaultRequestConfig(requestConfig)
++                    .setConnectionManager(connectionManager)
++                    .build();
++
++            httpClient.start();
++        } catch (Exception e) {
++            log.error(
++                    "OpenAIRE Matomo Usage Tracker couldn't be initialized. There will be no tracking until server restart.",
++                    e);
++            httpClient = null;
++        }
++    }
++
++    /**
++     * Reading OpenAIRE's Matomo configuration options
++     */
++    private void readConfiguration() {
++        // OpenAIRE Matomo variables
++        matomobaseUrl = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("openaire.matomo.trackerURL");
++        matomoSiteID = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("openaire.matomo.siteID");
++        matomoTokenAuth = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("openaire.matomo.tokenAuth");
++        matomoEnabled = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("openaire.matomo.enabled", true);
++        matomoIPAnonymizationBytes = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("openaire.matomo.ipanonymizationbytes", 0);
++        matomoRetry = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("openaire.matomo.retry", true);
++
++        // DSpace variables
++        useProxies = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getPropertyAsType("useProxies", false);
++        dspaceURL = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.ui.url");
++        dspaceHostName = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.ui.url");
++
++    }
++
++    /**
++     * Records the usage event in OpenAIRE's Matomo platform
++     *
++     * @param event Instance of the usage event
++     */
++    @Override
++    public void receiveEvent(final Event event) {
++
++        if (!(event instanceof UsageEvent)) {
++            return;
++        }
++
++        try {
++            this.readConfiguration();
++            if (!matomoEnabled || httpClient == null) {
++                return;
++            }
++            if (connectionManager.getTotalStats()
++                    .getPending() >= MAX_NUMBER_OF_PENDING_CONNECTIONS) {
++                log.error(
++                        "Event could not be sent to OpenAIRE Matomo due to insufficient available connections");
++                return;
++            }
++
++            log.debug("Usage event received " + event.getName());
++
++            UsageEvent ue = (UsageEvent) event;
++            if (ue.getAction() == UsageEvent.Action.VIEW) {
++                // Item Download Case
++                if (ue.getObject().getType() == Constants.BITSTREAM) {
++                    Bitstream bitstream = (Bitstream) ue.getObject();
++                    if (bitstream.getBundles().size() > 0) {
++                        Bundle bundle = bitstream.getBundles().get(0);
++                        if (bundle.getItems().size() > 0) {
++                            Item item = bundle.getItems().get(0);
++                            this.logEvent(item, bitstream, ue.getRequest());
++                        }
++                    }
++                }
++                // Item View Case
++                if (ue.getObject().getType() == Constants.ITEM) {
++                    Item item = (Item) ue.getObject();
++                    this.logEvent(item, null, ue.getRequest());
++                }
++            }
++
++        } catch (Exception e) {
++            log.error(e.getMessage());
++        }
++    }
++
++    /**
++     * Builds the URI to send the event to the configured OpenAIRE Matomo
++     * instance and sends the request.
++     *
++     * @param item      instance of an item event
++     * @param bitstream instance of a bitstream event
++     * @param request   HTTP request
++     * @throws IOException, URISyntaxException
++     */
++    private void logEvent(final Item item, final Bitstream bitstream,
++                          final HttpServletRequest request)
++            throws IOException, URISyntaxException {
++
++        URIBuilder builder = new URIBuilder(matomobaseUrl);
++        //builder.setPath(matomobaseUrl);
++        builder.addParameter("idsite", matomoSiteID);
++        builder.addParameter("cip", this.getIPAddress(request));
++        builder.addParameter("rec", "1");
++        builder.addParameter("token_auth", matomoTokenAuth);
++        builder.addParameter("action_name", item.getName());
++
++        // Agent Information
++        String agent = StringUtils
++                .defaultIfBlank(request.getHeader("USER-AGENT"), "");
++        builder.addParameter("ua", agent);
++
++        // Referer Information
++        String urlref = StringUtils.defaultIfBlank(request.getHeader("referer"),
++                "");
++        builder.addParameter("urlref", urlref);
++
++        // Country information in case of IPAnonymization
++        if (matomoIPAnonymizationBytes > 0 && matomoIPAnonymizationBytes < 4) {
++            String country = "";
++            try {
++                Locale locale = request.getLocale();
++                country = locale.getCountry();
++            } catch (Exception e) {
++                log.error("Cannot get locale", e);
++            }
++            builder.addParameter("country", country);
++        }
++
++        if (bitstream != null) {
++            // Bitstream information in case of download event
++            StringBuffer sb = new StringBuffer(dspaceURL);
++            sb.append("/bitstream/handle/").append(item.getHandle())
++                    .append("/");
++            sb.append(bitstream.getName());
++            builder.addParameter("url", sb.toString());
++            builder.addParameter("download", sb.toString());
++        } else {
++            // Item information in case of Item view event
++            builder.addParameter("url",
++                    dspaceURL + "/handle/" + item.getHandle());
++        }
++
++        // Matomo Custom Variable for OAI-PMH ID tracking
++        Gson gson = new Gson();
++        Map<String, String[]> jsonMatomoCustomVars = new HashMap<>();
++        String[] oaipmhID = new String[]{"oaipmhID",
++                "oai:" + dspaceHostName + ":" + item.getHandle()};
++        jsonMatomoCustomVars.put("1", oaipmhID);
++        builder.addParameter("cvar", gson.toJson(jsonMatomoCustomVars));
++
++        this.sendRequest(builder.build());
++    }
++
++    /**
++     * Get the IP-Address from the given request. Handles cases where a Proxy is
++     * involved and IP-Address anonymization. Not yet working with IPv6
++     *
++     * @param request
++     * @return IP address
++     * @throws UnknownHostException
++     */
++    private String getIPAddress(final HttpServletRequest request)
++            throws UnknownHostException {
++        String clientIP = request.getRemoteAddr();
++        if (useProxies && request.getHeader("X-Forwarded-For") != null) {
++            /* This header is a comma delimited list */
++            for (String xfip : request.getHeader("X-Forwarded-For").split(",")) {
++                /*
++                 * proxy itself will sometime populate this header with the same
++                 * value in remote address. ordering in spec is vague, we'll
++                 * just take the last not equal to the proxy
++                 */
++                if (!request.getHeader("X-Forwarded-For").contains(clientIP)) {
++                    clientIP = xfip.trim();
++                }
++            }
++        }
++
++        // IP anonymization case
++        if (matomoIPAnonymizationBytes > 0 && matomoIPAnonymizationBytes < 4) {
++
++            // Check IPv4 or IPv6
++            InetAddress ipadress = InetAddress.getByName(clientIP);
++            if (ipadress instanceof Inet6Address) {
++                clientIP = "0.0.0.0";
++            } else {
++                switch (matomoIPAnonymizationBytes) {
++                    case 1:
++                        clientIP = clientIP.substring(0,
++                                StringUtils.ordinalIndexOf(clientIP, ".", 3))
++                                + ".0";
++                        break;
++                    case 2:
++                        clientIP = clientIP.substring(0,
++                                StringUtils.ordinalIndexOf(clientIP, ".", 2))
++                                + ".0.0";
++                        break;
++                    case 3:
++                        clientIP = clientIP.substring(0,
++                                StringUtils.ordinalIndexOf(clientIP, ".", 1))
++                                + ".0.0.0";
++                        break;
++                    default:
++                        throw new IllegalArgumentException(
++                                "Invalid IP bytes: " + matomoIPAnonymizationBytes);
++                }
++            }
++        }
++
++        return clientIP;
++    }
++
++    /**
++     * Send the request to the given URI asynchronous. Ignores the result except
++     * for a status code check.
++     *
++     * @param uri
++     */
++    private void sendRequest(final URI uri) {
++        final HttpGet request = new HttpGet(uri);
++
++        httpClient.execute(request, new FutureCallback<HttpResponse>() {
++            @Override
++            public void completed(final HttpResponse response) {
++                if (response.getStatusLine()
++                        .getStatusCode() == HttpStatus.SC_OK) {
++                    log.info("Sent usage event to OpenAIRE Matomo");
++                } else {
++                    log.error("Error sending request to OpenAIRE Matomo." + " -> "
++                            + response.getStatusLine());
++                    this.failed(new Exception());
++                }
++            }
++
++            @Override
++            public void failed(final Exception ex) {
++                log.error("Error sending usage event to OpenAIRE Matomo");
++                try {
++                    if (matomoRetry) {
++                        OpenAireUsageTrackerUnreported unreportedReq = new OpenAireUsageTrackerUnreported();
++                        unreportedReq.storeRequest(uri.toString());
++                        log.info("Missing request stored to local DB");
++                    }
++                } catch (Exception e) {
++                    log.error("Error storing unreported request");
++                }
++
++            }
++
++            @Override
++            public void cancelled() {
++                log.info("Request cancelled");
++            }
++
++        });
++    }
++}
+diff --git a/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreported.java b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreported.java
+new file mode 100644
+index 000000000..ad1df9979
+--- /dev/null
++++ b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreported.java
+@@ -0,0 +1,86 @@
++/*
++ * OpenAireUsageTrackerUnreported.java
++ *
++ * Version: 0.1
++ * Date: 2021-11-20
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package org.dspace.statistics.export;
++
++import java.sql.Connection;
++import java.sql.DriverManager;
++import java.sql.SQLException;
++import java.sql.Statement;
++import java.sql.Timestamp;
++import java.util.Calendar;
++
++import org.apache.logging.log4j.LogManager;
++import org.apache.logging.log4j.Logger;
++
++/**
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
++ */
++public class OpenAireUsageTrackerUnreported
++{
++
++    private static Logger log = LogManager.getLogger(OpenAireUsageTrackerUnreported.class);
++
++    public OpenAireUsageTrackerUnreported()
++    {
++        try
++        {
++            // The JDBC driver loading doesn't work for webapps without this.
++            // http://tomcat.apache.org/tomcat-8.0-doc/jndi-datasource-examples-howto.html#DriverManager,_the_service_provider_mechanism_and_memory_leaks
++            Class.forName("org.sqlite.JDBC");
++        }
++        catch (ClassNotFoundException e)
++        {
++            log.error("Could not load sqlite JDBC driver");
++        }
++    }
++
++    public void storeRequest(String requestLost) throws Exception
++    {
++
++        try (Connection conn = DriverManager.getConnection(
++                OpenAireUsageTrackerUnreportedDB.getMatomoDatabaseUrl());
++                Statement stmt = conn.createStatement();)
++        {
++
++            log.info("Connected to Matomo DB...");
++
++            Timestamp currentTimestamp = new java.sql.Timestamp(
++                    Calendar.getInstance().getTime().getTime());
++            String sqlInsertMissingRequestsToDB = "INSERT INTO MissingInformation (time_req,url,isSend) "
++                    + "VALUES ('" + currentTimestamp + "','" + requestLost
++                    + "',0);";
++
++            stmt.execute(sqlInsertMissingRequestsToDB);
++        }
++        catch (SQLException e)
++        {
++            log.error(e.getMessage());
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreportedDB.java b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreportedDB.java
+new file mode 100644
+index 000000000..674c26282
+--- /dev/null
++++ b/dspace-api/src/main/java/org/dspace/statistics/export/OpenAireUsageTrackerUnreportedDB.java
+@@ -0,0 +1,155 @@
++/*
++ * OpenAireUsageTrackerUnreportedDB.java
++ *
++ * Version: 0.1
++ * Date: 2021-11-20
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met:
++ * - Redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer.
++ * - Redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ * TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
++ * DAMAGE.
++ */
++package org.dspace.statistics.export;
++
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.net.URLEncoder;
++import java.nio.charset.StandardCharsets;
++import java.sql.Connection;
++import java.sql.DriverManager;
++import java.sql.ResultSet;
++import java.sql.Statement;
++import java.util.HashMap;
++import java.util.Map;
++
++import org.dspace.services.factory.DSpaceServicesFactory;
++
++/**
++ * User: dpie (dpierrakos at gmail.com) Date: Time:
++**/
++public class OpenAireUsageTrackerUnreportedDB
++{
++
++    public static String getMatomoDatabaseUrl()
++    {
++        String dspaceDir = DSpaceServicesFactory.getInstance()
++                .getConfigurationService().getProperty("dspace.dir");
++
++        String matomoDbLocation = DSpaceServicesFactory.getInstance()
++                .getConfigurationService()
++                .getProperty("openaire.matomo.matomoDbLocation");
++
++        String connectionStringMatomoDB = "jdbc:sqlite:" + dspaceDir + "/"
++                + matomoDbLocation;
++
++        return connectionStringMatomoDB;
++    }
++
++    public static void main(String[] args) throws Exception
++    {
++
++        String argument = args[0];
++        if (!("-create".equals(argument)) && !("-retry".equals(argument))
++                && !("-delete".equals(argument)))
++        {
++            System.out.println("Usage: dspace.dir/bin/dspace -create or -retry or -delete");
++            return;
++        }
++
++        try (Connection conn = DriverManager
++                .getConnection(getMatomoDatabaseUrl());
++                Statement stmt = conn.createStatement();)
++        {
++
++            System.out.println("Connected to Matomo DB...");
++            if (argument.equals("-create"))
++            {
++
++                String sqlCreate = "CREATE TABLE IF NOT EXISTS MissingInformation (time_req TEXT PRIMARY KEY, url TEXT NOT NULL, isSend INTEGER NOT NULL);";
++                stmt.executeUpdate(sqlCreate);
++            }
++            else if (argument.equals("-retry"))
++            {
++
++                try (ResultSet rs = stmt.executeQuery(
++                        "SELECT time_req, url FROM MissingInformation where isSend=0;");)
++                {
++                    String urlUnreported = "";
++                    String time_req = "";
++
++                    HashMap<String, String> timestampURLMap = new HashMap<String, String>();
++
++                    if (!rs.isBeforeFirst())
++                        System.out.println("No pending missing requests");
++
++                    else
++                    {
++                        while (rs.next())
++                        {
++                            time_req = rs.getString("time_req");
++                            urlUnreported = rs.getString("url");
++                            timestampURLMap.put(time_req, urlUnreported);
++                        }
++                    }
++
++                    for (Map.Entry<String, String> entry : timestampURLMap
++                            .entrySet())
++                    {
++                        String timeStamp = entry.getKey();
++                        String urlForReport = entry.getValue();
++
++                        URL obj = new URL(urlForReport + "&cdt="
++                                + URLEncoder.encode(timeStamp,
++                                        StandardCharsets.UTF_8.name()));
++                        HttpURLConnection con = (HttpURLConnection) obj
++                                .openConnection();
++                        int responseCode = con.getResponseCode();
++                        if (responseCode == 200)
++                        {
++                            String sqlUpdate = "";
++
++                            sqlUpdate = "UPDATE MissingInformation set isSend=1 where time_req='"
++                                    + timeStamp + "';";
++                            stmt.executeUpdate(sqlUpdate);
++                            System.out.println("Unreported Event sent");
++                        }
++                    }
++                }
++                catch (Exception e)
++                {
++                    System.out.println(e);
++                }
++            }
++            else if (argument.equals("-delete"))
++            {
++
++                String sqlPurge = "DELETE FROM MissingInformation where isSend=1;";
++                int deletedRowCount = stmt.executeUpdate(sqlPurge);
++                System.out.println(deletedRowCount
++                       +  " missing requests have already been sent to Matomo and deleted from local DB");
++
++            }
++        }
++        catch (Exception e)
++        {
++            System.out.println("Error in creating table " + e.getMessage());
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/dspace/config/dspace.cfg b/dspace/config/dspace.cfg
+index 8e532310c..2d5838691 100644
+--- a/dspace/config/dspace.cfg
++++ b/dspace/config/dspace.cfg
+@@ -17,7 +17,7 @@
+ 
+ # DSpace installation directory
+ # Windows note: Please remember to use forward slashes for all paths (e.g. C:/dspace)
+-dspace.dir = /dspace
++dspace.dir = /Users/dpie/DSpace7/DSpace7Installation/dspace
+ 
+ csvexport.dir = ${dspace.dir}/exports
+ 
+@@ -1652,6 +1652,7 @@ include = ${module_dir}/doi-curation.cfg
+ include = ${module_dir}/google-analytics.cfg
+ include = ${module_dir}/healthcheck.cfg
+ include = ${module_dir}/irus-statistics.cfg
++include = ${module_dir}/openaire-usage-statistics.cfg
+ include = ${module_dir}/oai.cfg
+ include = ${module_dir}/openaire-client.cfg
+ include = ${module_dir}/orcid.cfg
+diff --git a/dspace/config/launcher.xml b/dspace/config/launcher.xml
+index be8564a0e..faf3061bf 100644
+--- a/dspace/config/launcher.xml
++++ b/dspace/config/launcher.xml
+@@ -352,4 +352,28 @@
+             <class>org.dspace.iiif.canvasdimension.CanvasDimensionCLI</class>
+         </step>
+     </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Create Matomo DB for Missing Usage Events</description>
++        <arguments>-create</arguments>
++        <step>
++            <class>org.dspace.statistics.export.OpenAireUsageTrackerUnreportedDB</class>
++        </step>
++    </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Retry sending all Missing Usage Events to Matomo</description>
++        <arguments>-retry</arguments>
++        <step>
++            <class>org.dspace.statistics.export.OpenAireUsageTrackerUnreportedDB</class>
++        </step>
++    </command>
++    <command>
++        <name>resend-to-matomo</name>
++        <description>Delete Usage Events Sent to Matomo</description>
++        <arguments>-delete</arguments>
++        <step>
++            <class>org.dspace.statistics.export.OpenAireUsageTrackerUnreportedDB</class>
++        </step>
++    </command>    
+ </commands>
+diff --git a/dspace/config/modules/openaire-usage-statistics.cfg b/dspace/config/modules/openaire-usage-statistics.cfg
+new file mode 100644
+index 000000000..f3a61841f
+--- /dev/null
++++ b/dspace/config/modules/openaire-usage-statistics.cfg
+@@ -0,0 +1,42 @@
++
++
++#------------------------#
++# OpenAIRE Matomo Tracker #
++#------------------------#
++
++# OpenAIRE UsageCounts (Usage Statistics) Implementation.
++#
++# 1. Configure tracker parameters
++# -Change Matomo site ID and Matomo Authentication Token
++# -Optionally specify the number of bytes in IP Address for IP Anonymization (for supported versions only).
++# -Enable (true) or disable (false) the tracker. Default value is false.
++#
++# 2. Configure SQLite DB for missing requests
++# -In case of Matomo connectivity issues an SQLite Database is used to store missing requests.
++# -To create the DB:
++# [dspace.dir]/bin/dspace resend-to-matomo -create
++# -Any time during the day, or once a week, execute the following command to submit the missing requests to Matomo
++# [dspace.dir]/bin/dspace resend-to-matomo -retry
++# -After sending the missing requests, execute the following command to delete submitted requests from the DB
++
++
++#Base Tracker URL
++openaire.matomo.trackerURL = https://beta.analytics.openaire.eu/piwik.php
++
++#Matomo siteID
++openaire.matomo.siteID = 1
++
++#Matomo Authentication Token
++openaire.matomo.tokenAuth=32846584f571be9b57488bf4088f30ea
++
++#IP Address Anonymization Bytes. Values in {1,2,3}
++#openaire.matomo.ipanonymizationbytes=2
++
++# Flag to enable/disable tracking. Default is false
++openaire.matomo.enabled = true
++
++# Flag whether failed reports of views should be stored in a database to resend them later
++openaire.matomo.retry = true
++
++# Location of the SQLite DB on the file system is [dspace]/openaire.matomo.matomoDbLocation
++openaire.matomo.matomoDbLocation = var/Matomo.db
+\ No newline at end of file
+diff --git a/dspace/config/spring/rest/event-service-listeners.xml b/dspace/config/spring/rest/event-service-listeners.xml
+index 532306c8b..973dcd938 100644
+--- a/dspace/config/spring/rest/event-service-listeners.xml
++++ b/dspace/config/spring/rest/event-service-listeners.xml
+@@ -23,5 +23,8 @@
+     <bean class="org.dspace.statistics.export.IrusExportUsageEventListener">
+         <property name="eventService" ref="org.dspace.services.EventService"/>
+     </bean>
+-
++    <!--  OpenAIRE statistics tracking  -->
++    <bean class="org.dspace.statistics.export.OpenAIREUsageTracker">
++        <property name="eventService" ref="org.dspace.services.EventService"/>
++    </bean>  
+ </beans>

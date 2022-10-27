@@ -1,9 +1,9 @@
-# OpenAIRE Piwik plugin for DSpace
+# OpenAIRE Matomo plugin for DSpace
 
-DSpace implementation for OpenAIRE Piwik tracking.
+DSpace implementation for OpenAIRE Matomo tracking.
 
     Tracks usage activity for OpenAIRE usage statistics service.
-    Contact dpierrakos@gmail.com to request an OpenAIRE Piwik Site ID and an Authentication Token.
+    Contact dpierrakos@gmail.com to request an OpenAIRE Matomo Site ID and an Authentication Token.
 
 <strong>NOTE:</strong> The patches require the source release of a DSpace to be validated and recompiled.
 
@@ -32,7 +32,7 @@ git apply --whitespace=nowarn --reject patchfile
 ```
 
 ## Configure tracker parameters
-- Change Piwik site ID and Piwik Authentication Token in <strong>oapiwik.cfg</strong>, located in <strong>[dspace-source]/dspace/config/modules</strong>
+- Change Matomo site ID and Matomo Authentication Token in <strong>oapiwik.cfg</strong>, located in <strong>[dspace-source]/dspace/config/modules</strong>
 - Optionally specify the number of bytes in IP Address for IP Anonymization (for supported versions only).
 - Enable (<strong>true</strong>) or disable (<strong>false</strong>) the tracker. Default value is <strong>true</strong>.
 
