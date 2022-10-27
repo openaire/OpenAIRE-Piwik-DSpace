@@ -15,7 +15,7 @@ DSpace implementation for OpenAIRE Matomo tracking.
 
 [Patch for DSpace v.6](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace6.diff)
 
-[Patch for DSpase v.7](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace7.diff)
+[Patch for DSpace v.7](https://raw.githubusercontent.com/openaire/OpenAIRE-Piwik-DSpace/master/piwik-openaire-dspace7.diff)
 
 ## Validate and Apply the patch
 
