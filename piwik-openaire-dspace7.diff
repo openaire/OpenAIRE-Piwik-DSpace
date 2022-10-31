@@ -777,7 +777,7 @@ index 000000000..f3a61841f
 +
 +
 +#Base Tracker URL
-+openaire.matomo.trackerURL = https://beta.analytics.openaire.eu/piwik.php
++openaire.matomo.trackerURL = https://analytics.openaire.eu/piwik.php
 +
 +#Matomo siteID
 +openaire.matomo.siteID = 1
@@ -789,7 +789,7 @@ index 000000000..f3a61841f
 +#openaire.matomo.ipanonymizationbytes=2
 +
 +# Flag to enable/disable tracking. Default is false
-+openaire.matomo.enabled = true
++openaire.matomo.enabled = false
 +
 +# Flag whether failed reports of views should be stored in a database to resend them later
 +openaire.matomo.retry = true
