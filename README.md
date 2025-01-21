@@ -3,7 +3,7 @@
 DSpace implementation for OpenAIRE Matomo tracking.
 
     Tracks usage activity for OpenAIRE usage statistics service.
-    Contact dpierrakos@gmail.com to request an OpenAIRE Matomo Site ID and an Authentication Token.
+    Contact repositoryusagestats@openaire.eu to request an OpenAIRE Matomo Site ID and an Authentication Token.
 
 <strong>NOTE:</strong> The patches require the source release of a DSpace to be validated and recompiled.
 
