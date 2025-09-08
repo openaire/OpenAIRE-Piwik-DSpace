@@ -2,7 +2,7 @@
 
 DSpace implementation for OpenAIRE Matomo tracking.
 
-    Tracks usage activity for OpenAIRE usage statistics service.
+    Tracks usage activity for OpenAIRE usage statistics service (OpenAIRE UsageCounts and the EOSC Beyond Interoperability Guidelines for Accounting of Research Products)
     Contact repositoryusagestats@openaire.eu to request an OpenAIRE Matomo Site ID and an Authentication Token.
 
 <strong>NOTE:</strong> The patches require the source release of a DSpace to be validated and recompiled.
